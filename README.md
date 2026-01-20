@@ -1,7 +1,20 @@
-# ASP.NET Core Docs
-
-This repository contains the conceptual ASP.NET Core documentation hosted at [docs.microsoft.com/aspnet/core](https://docs.microsoft.com/aspnet/core/getting-started). See the [Contributing Guide](CONTRIBUTING.md) and the [issues list](https://github.com/dotnet/AspNetCore.Docs/issues) if you would like to help.
-
-API documentation changes are made in the [AspNetApiDocs repository](https://github.com/dotnet/AspNetApiDocs) against the triple slash `///` comments.
-
-ASP.NET 4.x documentation changes are made in the [dotnet/AspNetDocs repository](https://github.com/dotnet/AspNetDocs).
+SELECT 
+  grantee AS user_email,
+  privilege_type,
+  CASE 
+    WHEN table_catalog IS NOT NULL THEN CONCAT(table_catalog, '.', table_schema, '.', table_name)
+    WHEN catalog_name IS NOT NULL AND schema_name IS NOT NULL THEN CONCAT(catalog_name, '.', schema_name)
+    WHEN catalog_name IS NOT NULL THEN catalog_name
+  END AS object_path,
+  grantor,
+  is_grantable
+FROM (
+  SELECT grantee, privilege_type, catalog_name, NULL AS schema_name, NULL AS table_name, grantor, is_grantable FROM system.information_schema.catalog_privileges
+  UNION ALL
+  SELECT grantee, privilege_type, catalog_name, schema_name, NULL, grantor, is_grantable FROM system.information_schema.schema_privileges
+  UNION ALL
+  SELECT grantee, privilege_type, table_catalog, table_schema, table_name, grantor, is_grantable FROM system.information_schema.table_privileges
+) t
+WHERE grantee LIKE '%@%' 
+  AND grantee NOT REGEXP '^[0-9a-f-]{36}$'
+ORDER BY grantee, object_path;
