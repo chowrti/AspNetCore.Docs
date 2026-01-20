@@ -18,3 +18,34 @@ FROM (
 WHERE grantee LIKE '%@%' 
   AND grantee NOT REGEXP '^[0-9a-f-]{36}$'
 ORDER BY grantee, object_path;
+
+
+
+WITH grants AS (
+  SELECT 
+    event_time,
+    user_identity.email AS changed_by,
+    request_params.securable_full_name AS object,
+    request_params.securable_type AS obj_type,
+    explode(from_json(request_params.changes, 'array<struct<principal:string, privileges:array<string>, grant_option:boolean, action:string>>')) AS change_detail
+  FROM system.access.audit
+  WHERE service_name = 'unityCatalog'
+    AND action_name = 'updatePermissions'
+    -- Add filters here
+)
+SELECT 
+  event_time,
+  changed_by,
+  object,
+  obj_type,
+  change_detail.principal          AS grantee_or_revokee,
+  change_detail.privileges         AS privileges_changed,
+  change_detail.grant_option       AS with_grant_option,
+  change_detail.action             AS change_action   -- e.g., ADD, REMOVE (if present in newer logs)
+FROM grants
+ORDER BY event_time DESC;
+
+
+
+
+
