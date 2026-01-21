@@ -46,6 +46,33 @@ FROM grants
 ORDER BY event_time DESC;
 
 
+import smtplib, ssl
+from email.message import EmailMessage
+
+SMTP_HOST = "smtp.office365.com"   # change if needed
+SMTP_PORT = 587
+SMTP_USER = "sender@company.com"
+SMTP_PASS = dbutils.secrets.get("email-secrets", "smtp-password")
+
+msg = EmailMessage()
+msg["Subject"] = "Databricks Test Email"
+msg["From"] = SMTP_USER
+msg["To"] = "your.email@company.com"
+msg.set_content("✅ This is a test email sent from a Databricks notebook.")
+
+context = ssl.create_default_context()
+
+with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+    server.starttls(context=context)
+    server.login(SMTP_USER, SMTP_PASS)
+    server.send_message(msg)
+
+print("Email sent successfully")
+
+
+
+
+
 
 
 
