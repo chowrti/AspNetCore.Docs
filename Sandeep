@@ -1,0 +1,138 @@
+✅ **Excellent project request!** Here's a structured **Project Plan** for your **Data Lake Security Monitoring Project** in Databricks Unity Catalog.
+
+### Project Name: Data Lake Security Monitoring & Long-Term Audit Retention
+
+### Project Objective
+Build automated pipelines to capture, retain (beyond 365 days), and monitor Unity Catalog access activity on sensitive objects with focus on:
+- Unauthorized DML
+- Direct grants to users/SPs
+- Role-based access activity
+- User-based access monitoring
+
+### High-Level Phases & Epics
+
+#### Phase 1: Discovery & Requirements (1-2 weeks)
+**Epic 1.1: Requirements Gathering**
+- Identify list of sensitive catalogs/schemas/tables/views (PII, PCI, financial, customer data)
+- Define "unauthorized" DML (which users/SPs/roles are allowed per object)
+- Define approved access patterns (group-based only, direct grants prohibited)
+- Define sensitive roles / service principals to monitor
+- Define reporting requirements (daily/weekly reports + on-demand)
+- Define alert channels (email, Slack, Teams, PagerDuty)
+
+**Epic 1.2: Current State Assessment**
+- Inventory current system tables access (system.access.audit, information_schema.*)
+- Assess current retention (365 days default)
+- Review existing grant model (groups vs direct)
+- Identify current monitoring gaps
+
+#### Phase 2: Architecture & Design (1-2 weeks)
+**Epic 2.1: Target Data Model Design**
+- Design target schema in custom catalog (e.g., `security_monitoring.audit_logs`)
+- Design fact tables: `audit_events`, `dml_events`, `grant_events`, `sensitive_object_access`
+- Design dimension tables: `sensitive_objects`, `allowed_principals`, `sensitive_roles`
+- Design retention strategy (partition by date, time travel, vacuum policy)
+
+**Epic 2.2: Pipeline Architecture**
+- Choose ingestion pattern: Audit Log Delivery → Auto Loader → DLT (continuous) OR scheduled query
+- Design alerting layer (foreachBatch → webhook/email)
+- Design long-term storage strategy
+
+#### Phase 3: Sensitive Objects & Access Baseline (2 weeks)
+**Epic 3.1: Sensitive Objects Registry**
+- Create table `security_monitoring.metadata.sensitive_objects`
+- Build ingestion pipeline to populate/maintain it
+- Add classification tags (PII, PCI, etc.)
+
+**Epic 3.2: Access Policy Baseline**
+- Create `security_monitoring.metadata.allowed_access` (object → allowed groups/SPs/roles)
+- Create `security_monitoring.metadata.allowed_direct_grants_exceptions` (approved exceptions)
+
+#### Phase 4: Long-Term Audit Pipeline (3-4 weeks)
+**Epic 4.1: Raw Audit Ingestion**
+- Set up audit log delivery to storage
+- Build DLT pipeline (continuous mode) using Auto Loader
+- Ingest `system.access.audit` into `security_monitoring.audit_logs.raw_audit_events` (retention: 5+ years)
+
+**Epic 4.2: Curated Audit Tables**
+- Build DLT for cleaned/parsed audit events
+- Extract catalog/schema/object from `securable_full_name`
+- Enrich with sensitive object flags, grant type, DML type
+
+#### Phase 5: Security Controls Implementation (4 weeks)
+**Epic 5.1: Object-Based Controls**
+- Detect unauthorized DML on sensitive objects
+- Detect direct grants to users/SPs (not groups)
+
+**Epic 5.2: Role-Based Controls**
+- Monitor grants/revokes involving sensitive roles
+- Monitor usage of roles that have access to sensitive objects
+
+**Epic 5.3: User-Based Controls**
+- Track individual user access to sensitive objects
+- Build on-demand lookup capability
+
+**Epic 5.4: Alerting Engine**
+- Build rules engine for violations
+- Implement email/Slack/PagerDuty alerts
+- Include context (who, what, when, object, privilege)
+
+#### Phase 6: Reporting & Dashboards (2-3 weeks)
+**Epic 6.1: Daily & Weekly Reports**
+- Automated daily violation report
+- Weekly executive summary
+- Scheduled notebook/job + email attachment (CSV/PDF)
+
+**Epic 6.2: Dashboards**
+- Databricks SQL dashboards:
+  - Unauthorized access summary
+  - Direct grant violations
+  - Top users accessing sensitive data
+  - Grant activity trends
+
+#### Phase 7: Security, Testing & Deployment (2 weeks)
+**Epic 7.1: Security Hardening**
+- Run pipeline as service principal (least privilege)
+- Apply UC grants to monitoring catalog
+- Encrypt sensitive metadata
+
+**Epic 7.2: Testing**
+- Unit tests for rules
+- Integration tests with simulated GRANT/DML
+- Load testing
+- False positive tuning
+
+**Epic 7.3: Deployment**
+- CI/CD pipeline (Databricks Asset Bundles or Terraform)
+- Promotion: Dev → Test → Prod
+- Cutover plan from system tables
+
+#### Phase 8: Operations & Handover (1 week)
+- Monitoring & alerting on pipeline itself
+- Runbook for false positives / exceptions
+- Training for security / compliance team
+- Documentation
+
+### Suggested DevOps Structure
+
+**Epics (High level)**
+- EPIC-001: Long-term audit log retention pipeline
+- EPIC-002: Sensitive objects registry
+- EPIC-003: Object-based unauthorized access detection
+- EPIC-004: Direct grant violation detection
+- EPIC-005: Role & user activity monitoring
+- EPIC-006: Alerting & notification engine
+- EPIC-007: Daily/Weekly reporting
+- EPIC-008: Dashboards & self-service
+
+**Sample User Story**
+"As a Security Engineer, I want the pipeline to automatically detect and alert on direct GRANT statements to individual users on sensitive tables, so we can enforce group-based access policy."
+
+**Sample Tasks**
+- Add `securable_full_name` parsing logic
+- Join with sensitive_objects table
+- Check `principal_type` == 'USER'
+- Exclude approved exceptions
+- Trigger alert via SMTP/Slack
+
+Would you like me to expand any specific phase into detailed user stories, or prioritize certain epics first (e.g., start with long-term retention + direct grant detection)?
