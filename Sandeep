@@ -1,3 +1,99 @@
+-- =====================================================
+-- List all access events (queries, DML, reads) in last 7 days
+-- for selected schemas in Unity Catalog
+-- =====================================================
+
+WITH selected_schemas AS (
+    SELECT 
+        schema_name
+    FROM VALUES 
+        ('retail'),
+        ('gold'),
+        ('finance'),
+        ('customer') 
+        -- ← Add or remove schemas here
+    ) AS t(schema_name)
+),
+
+parsed_audit AS (
+    SELECT 
+        event_time,
+        user_identity.email AS actor,
+        action_name,
+        request_params.securable_full_name AS full_object_name,
+        request_params.securable_type AS object_type,
+        request_params.commandText AS sql_command,
+        request_params.operation AS operation,
+        source_ip_address,
+        request_id,
+        
+        -- Extract catalog, schema, object
+        split(request_params.securable_full_name, '\\.')[0] AS catalog_name,
+        CASE WHEN size(split(request_params.securable_full_name, '\\.')) >= 2 
+             THEN split(request_params.securable_full_name, '\\.')[1] 
+             ELSE NULL END AS schema_name,
+        CASE WHEN size(split(request_params.securable_full_name, '\\.')) >= 3 
+             THEN split(request_params.securable_full_name, '\\.')[2] 
+             ELSE NULL END AS object_name
+
+    FROM system.access.audit
+    WHERE service_name = 'unityCatalog'
+      AND event_time >= current_timestamp() - INTERVAL 7 DAYS
+      AND request_params.securable_full_name IS NOT NULL
+      AND action_name IN (
+            'executeAdhocQuery', 
+            'submitRun', 
+            'read', 
+            'write', 
+            'select',
+            'mergeInto', 
+            'delete', 
+            'updateTable',
+            'insertInto'
+            'grant', 
+            'revoke', 
+            'grantPrivilege', 
+            'revokePrivilege'
+      )
+)
+
+SELECT 
+    event_time,
+    actor,
+    action_name,
+    catalog_name,
+    schema_name,
+    object_name,
+    object_type,
+    full_object_name,
+    sql_command,
+    operation,
+    source_ip_address,
+    request_id
+FROM parsed_audit
+WHERE schema_name IN (SELECT schema_name FROM selected_schemas)
+  AND object_type IN ('TABLE', 'VIEW')
+ORDER BY event_time DESC;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 -- 1. Check what catalog/schema the linked server thinks is current
 SELECT 
     DB_NAME() AS current_catalog,
