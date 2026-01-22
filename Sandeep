@@ -52,3 +52,4 @@ EXEC sp_addlinkedsrvlogin
 
 
 
+UseNativeQuery = 1
