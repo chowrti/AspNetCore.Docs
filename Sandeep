@@ -33,3 +33,22 @@ response = requests.post(
 )
 
 print("✅ Status:", response.status_code)
+
+
+
+EXEC sp_addlinkedserver 
+    @server = N'Databricks_UC',
+    @srvproduct = N'',
+    @provider = N'MSDASQL',
+    @datasrc = N'Databricks_UC_Prod';
+
+
+EXEC sp_addlinkedsrvlogin
+    @rmtsrvname = N'Databricks_UC',
+    @useself = 'False',
+    @rmtuser = 'token',                    -- literal word "token"
+    @rmtpassword = 'dapiXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
+
+
+
+
