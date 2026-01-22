@@ -1,3 +1,25 @@
+-- 1. Check what catalog/schema the linked server thinks is current
+SELECT 
+    DB_NAME() AS current_catalog,
+    SCHEMA_NAME() AS current_schema
+FROM [Databricks_UC]..[information_schema].[tables] 
+WHERE TABLE_NAME = 'orders';
+
+-- 2. List available catalogs
+SELECT * FROM OPENQUERY(Databricks_UC, 'SHOW CATALOGS');
+
+-- 3. List schemas in your catalog
+SELECT * FROM OPENQUERY(Databricks_UC, 'SHOW SCHEMAS IN prod');
+
+-- 4. Confirm table exists
+SELECT * FROM OPENQUERY(Databricks_UC, 'SHOW TABLES IN prod.retail');
+
+
+
+
+
+
+
 import requests
 
 # Get token using managed identity or client secret
