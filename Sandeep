@@ -1,3 +1,24 @@
+EXEC sp_addlinkedserver 
+    @server = N'Databricks_UC',                -- Linked Server Name
+    @srvproduct = N'',
+    @provider = N'MSDASQL',                    -- Microsoft OLE DB Provider for ODBC
+    @provstr = N'Driver={Databricks Spark ODBC Driver};
+                 Host=adb-1234567890123456.7.azuredatabricks.net;
+                 Port=443;
+                 HTTPPath=/sql/1.0/warehouses/0123456789abcdef0123456789abcdef;
+                 AuthMech=3;
+                 UID=token;
+                 PWD=dapiXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX;
+                 ConnCatalog=prod;                 -- ← Default Catalog
+                 ConnSchema=retail;                -- ← Default Schema
+                 SSL=1;
+                 ThriftTransport=2;
+                 UseNativeQuery=1';
+
+
+
+
+
 -- =====================================================
 -- List all access events (queries, DML, reads) in last 7 days
 -- for selected schemas in Unity Catalog
