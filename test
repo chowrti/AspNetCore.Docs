@@ -1,23 +1,139 @@
-from pyspark.sql.functions import col, lit
-from delta.tables import DeltaTable
+# Databricks notebook source
+# COMMAND ----------
 
-target_table = "your_catalog.your_schema.query_history_longterm"
-source_table = "system.query.history"
+# ────────────────────────────────────────────────
+#          CONFIGURATION - CHANGE THESE
+# ────────────────────────────────────────────────
 
-# Get last ingested timestamp (or use a separate control/metadata table for robustness)
-max_ts_df = spark.sql(f"SELECT COALESCE(MAX(start_time), '1900-01-01') AS max_ts FROM {target_table}")
-max_ts = max_ts_df.collect()[0]["max_ts"]
+CATALOG_NAME      = "main"                     # or your catalog name
+SCHEMA_NAME       = "sales"
+TABLE_NAME        = "orders"
 
-# Fetch new data (add small buffer window e.g., -1 hour to catch late-arriving records)
-new_data = spark.read.table(source_table).filter(col("start_time") > max_ts)
+DATE_COLUMN       = "order_date"               # ← important: your timestamp/date column name
+EMAIL_RECIPIENTS  = ["manager@company.com", "teamlead@company.com"]
+EMAIL_SUBJECT     = "Daily Orders Summary – " + dbutils.widgets.text("today", "")
 
-if new_data.count() > 0:
-    # Option A: Simple append (fastest if statement_id is reliably unique and no re-runs)
-    new_data.write.format("delta").mode("append").saveAsTable(target_table)
+YOUR_SENDER_NAME  = "Databricks Alerts <alerts@yourcompany.com>"
 
-    # Option B: Safer MERGE (handles duplicates, late data, re-runs; use if worried about exact-once)
-    delta_target = DeltaTable.forName(spark, target_table)
-    delta_target.alias("target").merge(
-        new_data.alias("source"),
-        "target.statement_id = source.statement_id AND target.workspace_id = source.workspace_id"  # or add start_time
-    ).whenNotMatchedInsertAll().execute()
+# If you want to use SMTP instead of Databricks email → fill these
+USE_SMTP          = False
+SMTP_HOST         = "smtp.office365.com"
+SMTP_PORT         = 587
+SMTP_USER         = "your.email@company.com"
+SMTP_PASSWORD     = dbutils.secrets.get("email-secrets", "smtp-password")  # ← recommended
+
+# ────────────────────────────────────────────────
+#               1. READ TODAY'S DATA
+# ────────────────────────────────────────────────
+
+from pyspark.sql.functions import col, current_date, to_date, lit
+from datetime import date
+
+today = date.today()
+print(f"Processing date: {today}")
+
+table_full_name = f"{CATALOG_NAME}.{SCHEMA_NAME}.{TABLE_NAME}"
+
+df_today = (
+    spark.table(table_full_name)
+    .where(to_date(col(DATE_COLUMN)) == lit(today))
+    # .where(col(DATE_COLUMN).cast("date") == current_date())   # alternative
+)
+
+count = df_today.count()
+print(f"Found {count:,} records for today")
+
+if count == 0:
+    dbutils.notebook.exit("No records found for today → stopping")
+
+# COMMAND ----------
+
+# ────────────────────────────────────────────────
+#               2. BUILD NICE HTML TABLE
+# ────────────────────────────────────────────────
+
+# Optional: take a sample or aggregate — here we show raw records (limit to avoid huge emails)
+display_limit = 500
+pdf = df_today.limit(display_limit).toPandas()
+
+# Convert to HTML with basic but clean styling
+html_table = pdf.to_html(
+    index=False,
+    border=0,
+    classes="table table-striped table-hover",
+    justify="left"
+)
+
+html_content = f"""\
+<html>
+<head>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacOSystemFont, 'Segoe UI', Roboto, sans-serif; color: #333; }}
+    .header {{ background: #1e3a8a; color: white; padding: 16px; border-radius: 6px 6px 0 0; }}
+    .content {{ padding: 20px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 0 0 6px 6px; }}
+    table {{ width: 100%; border-collapse: collapse; }}
+    th, td {{ padding: 10px 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }}
+    th {{ background: #f3f4f6; font-weight: 600; }}
+    .footer {{ margin-top: 24px; font-size: 0.9em; color: #6b7280; }}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>Daily Orders Report – {today}</h2>
+    <p>Found <strong>{count:,}</strong> new orders today</p>
+  </div>
+  
+  <div class="content">
+    {html_table}
+    
+    <div class="footer">
+      {'Showing first ' + str(display_limit) + ' rows' if count > display_limit else 'All records shown'}<br>
+      Full dataset available in Databricks → {table_full_name}
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+# COMMAND ----------
+
+# ────────────────────────────────────────────────
+#               3. SEND EMAIL
+# ────────────────────────────────────────────────
+
+if not USE_SMTP:
+    # === Preferred way in Databricks (no credentials needed) ===
+    dbutils.notebook.run("/Shared/send_html_email", 120, {
+        "subject": f"{EMAIL_SUBJECT} {today}",
+        "html_body": html_content,
+        "to": ",".join(EMAIL_RECIPIENTS),
+        "from_name": YOUR_SENDER_NAME
+    })
+    print("Email sent using Databricks internal email service")
+
+else:
+    # === Classic SMTP way (Outlook 365 / Gmail etc) ===
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"{EMAIL_SUBJECT} {today}"
+    msg["From"]    = YOUR_SENDER_NAME
+    msg["To"]      = ", ".join(EMAIL_RECIPIENTS)
+
+    msg.attach(MIMEText(html_content, "html"))
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.send_message(msg)
+        print("Email sent successfully via SMTP")
+    except Exception as e:
+        print("SMTP failed:", str(e))
+
+# COMMAND ----------
+
+# Optional: show preview in notebook
+displayHTML(html_content[:32000])  # avoid notebook crash with very large tables
