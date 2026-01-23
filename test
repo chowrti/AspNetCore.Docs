@@ -1,3 +1,25 @@
+from pyspark.sql.functions import regexp_replace, col
+
+df_clean = df.withColumn(
+    "sql_stmt_clean",
+    regexp_replace(
+        regexp_replace(
+            regexp_replace(col("sql_stmt"), r"[\n\r]+", " "),    # newlines → single space
+            r"\t+", " "),                                        # tabs → space
+        r" +", " "                                               # multiple spaces → single space
+    )
+)
+
+# Optional: trim + collapse whitespace even more aggressively
+# .withColumn("sql_stmt_clean", trim(regexp_replace(col("sql_stmt_clean"), r"\s+", " ")))
+
+display(df_clean.select("id", "sql_stmt_clean", "other_col").limit(20))
+
+
+
+
+
+
 # Databricks notebook source
 # COMMAND ----------
 
