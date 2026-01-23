@@ -1,162 +1,23 @@
-# Databricks notebook (PySpark)
-# Incremental archive of system.query.history into Unity Catalog (long-term retention)
-# Pattern: scheduled batch + overlap window + SQL CREATE TABLE IF NOT EXISTS + MERGE (upsert) + watermark table
-#
-# How to run: put this notebook in a Databricks Workflow (Job) and schedule it (hourly/daily).
+from pyspark.sql.functions import col, lit
+from delta.tables import DeltaTable
 
-from pyspark.sql import functions as F
-from pyspark.sql.window import Window
+target_table = "your_catalog.your_schema.query_history_longterm"
+source_table = "system.query.history"
 
-# ----------------------------
-# 0) CONFIG (edit these)
-# ----------------------------
-TARGET_CATALOG = "project_catalog"
-TARGET_SCHEMA  = "observability"
-TARGET_TABLE   = "query_history"            # final Delta table
-META_TABLE     = "query_history_watermark"  # one-row watermark table
+# Get last ingested timestamp (or use a separate control/metadata table for robustness)
+max_ts_df = spark.sql(f"SELECT COALESCE(MAX(start_time), '1900-01-01') AS max_ts FROM {target_table}")
+max_ts = max_ts_df.collect()[0]["max_ts"]
 
-PIPELINE_NAME  = "system.query.history"     # key used in meta table
+# Fetch new data (add small buffer window e.g., -1 hour to catch late-arriving records)
+new_data = spark.read.table(source_table).filter(col("start_time") > max_ts)
 
-# Re-read a small overlap each run to handle late updates / retries
-OVERLAP_DAYS = 2
+if new_data.count() > 0:
+    # Option A: Simple append (fastest if statement_id is reliably unique and no re-runs)
+    new_data.write.format("delta").mode("append").saveAsTable(target_table)
 
-# Optional: only persist terminal states
-ONLY_TERMINAL = False
-
-# Optional: if True, keep latest record per statement_id *within each run* before MERGE
-DEDUP_WITHIN_BATCH = True
-
-# ----------------------------
-# 1) Fully qualified names
-# ----------------------------
-target_fqn = f"{TARGET_CATALOG}.{TARGET_SCHEMA}.{TARGET_TABLE}"
-meta_fqn   = f"{TARGET_CATALOG}.{TARGET_SCHEMA}.{META_TABLE}"
-
-# ----------------------------
-# 2) Ensure catalog/schema + meta table exist
-# ----------------------------
-spark.sql(f"CREATE CATALOG IF NOT EXISTS {TARGET_CATALOG}")
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS {TARGET_CATALOG}.{TARGET_SCHEMA}")
-
-spark.sql(f"""
-CREATE TABLE IF NOT EXISTS {meta_fqn} (
-  pipeline_name STRING,
-  last_start_time TIMESTAMP,
-  updated_at TIMESTAMP
-)
-USING DELTA
-""")
-
-# Seed meta row once
-spark.sql(f"""
-INSERT INTO {meta_fqn}
-SELECT '{PIPELINE_NAME}', CAST('1900-01-01' AS TIMESTAMP), current_timestamp()
-WHERE NOT EXISTS (
-  SELECT 1 FROM {meta_fqn} WHERE pipeline_name = '{PIPELINE_NAME}'
-)
-""")
-
-# ----------------------------
-# 3) Load watermark and compute overlap start
-# ----------------------------
-wm_row = (
-    spark.table(meta_fqn)
-         .where(F.col("pipeline_name") == F.lit(PIPELINE_NAME))
-         .select("last_start_time")
-         .collect()
-)
-
-last_start_time = wm_row[0]["last_start_time"]
-print(f"Watermark last_start_time = {last_start_time}")
-
-# Compute overlap start in SQL to avoid timezone quirks
-overlap_start = spark.sql(
-    f"SELECT TIMESTAMP('{last_start_time}') - INTERVAL {OVERLAP_DAYS} DAYS AS ts"
-).collect()[0]["ts"]
-
-print(f"Reading from (with overlap) = {overlap_start}")
-
-# ----------------------------
-# 4) Read incremental slice from system.query.history
-# ----------------------------
-src = (
-    spark.table("system.query.history")
-         .where(F.col("start_time") >= F.lit(overlap_start))
-)
-
-if ONLY_TERMINAL:
-    src = src.where(F.col("execution_status").isin(["FINISHED", "FAILED", "CANCELED"]))
-
-# Optional: de-dup within the batch by statement_id (keep the latest-ish row)
-# Prefer a true "updated_at" column if your table has one; if not, use end_time/start_time.
-if DEDUP_WITHIN_BATCH:
-    w = Window.partitionBy("statement_id").orderBy(
-        F.col("end_time").desc_nulls_last(),
-        F.col("start_time").desc_nulls_last()
-    )
-    src = (
-        src.withColumn("_rn", F.row_number().over(w))
-           .where(F.col("_rn") == 1)
-           .drop("_rn")
-    )
-
-# Create a temp view for SQL CTAS + MERGE
-SRC_VIEW = "src_query_history_incremental"
-src.createOrReplaceTempView(SRC_VIEW)
-
-# ----------------------------
-# 5) Create target table if it doesn't exist (schema-only, no data)
-#    This avoids spark.catalog.tableExists issues with 3-level names in Unity Catalog.
-# ----------------------------
-spark.sql(f"""
-CREATE TABLE IF NOT EXISTS {target_fqn}
-USING DELTA
-AS
-SELECT * FROM {SRC_VIEW} WHERE 1 = 0
-""")
-
-# Enable schema evolution for MERGE (handles new columns added over time)
-spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
-
-# ----------------------------
-# 6) MERGE (upsert) into target
-# ----------------------------
-# Key: statement_id
-# If you are in a context where statement_id might collide across workspaces, consider
-# extending the key if you have a workspace/account column available, e.g.:
-# ON t.workspace_id = s.workspace_id AND t.statement_id = s.statement_id
-spark.sql(f"""
-MERGE INTO {target_fqn} AS t
-USING {SRC_VIEW} AS s
-ON t.statement_id = s.statement_id
-WHEN MATCHED THEN UPDATE SET *
-WHEN NOT MATCHED THEN INSERT *
-""")
-
-# ----------------------------
-# 7) Advance watermark based on what we actually ingested this run
-# ----------------------------
-# Use max start_time from the source slice (post filters) to move forward conservatively.
-# If the slice is empty, keep watermark unchanged.
-max_src_start = src.agg(F.max("start_time").alias("mx")).collect()[0]["mx"]
-
-if max_src_start is not None:
-    spark.sql(f"""
-    UPDATE {meta_fqn}
-    SET last_start_time = TIMESTAMP('{max_src_start}'),
-        updated_at = current_timestamp()
-    WHERE pipeline_name = '{PIPELINE_NAME}'
-    """)
-    print(f"Updated watermark to {max_src_start}")
-else:
-    print("No rows in this run; watermark unchanged.")
-
-# ----------------------------
-# 8) (Optional) Maintenance hooks
-# ----------------------------
-# Consider a separate scheduled job for maintenance (daily/weekly):
-# - OPTIMIZE / clustering
-# - retention policies on your archived table (much longer than 365 days if needed)
-#
-# Example:
-# spark.sql(f"OPTIMIZE {target_fqn} ZORDER BY (start_time)")
+    # Option B: Safer MERGE (handles duplicates, late data, re-runs; use if worried about exact-once)
+    delta_target = DeltaTable.forName(spark, target_table)
+    delta_target.alias("target").merge(
+        new_data.alias("source"),
+        "target.statement_id = source.statement_id AND target.workspace_id = source.workspace_id"  # or add start_time
+    ).whenNotMatchedInsertAll().execute()
