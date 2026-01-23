@@ -1,0 +1,38 @@
+-- Run once
+CREATE TABLE IF NOT EXISTS my_catalog.security_monitoring.query_history_longterm
+LIKE system.query.history;
+
+-- Optional: Add partition for efficiency (by query start date)
+ALTER TABLE my_catalog.security_monitoring.query_history_longterm
+ADD PARTITION FIELD (date_trunc('day', start_time)) AS query_date;
+
+
+
+CREATE TABLE IF NOT EXISTS my_catalog.security_monitoring.query_history_watermark (
+    table_name STRING,
+    last_processed_timestamp TIMESTAMP
+);
+
+-- Initialize
+INSERT INTO my_catalog.security_monitoring.query_history_watermark
+VALUES ('query_history', '1900-01-01');
+
+
+-- Get last processed time
+DECLARE last_ts TIMESTAMP;
+SET last_ts = (SELECT last_processed_timestamp FROM my_catalog.security_monitoring.query_history_watermark WHERE table_name = 'query_history');
+
+-- Insert new queries only
+INSERT INTO my_catalog.security_monitoring.query_history_longterm
+SELECT * FROM system.query.history
+WHERE start_time > last_ts
+  AND start_time < current_timestamp() - INTERVAL 5 MINUTE;  -- avoid in-flight queries
+
+-- Update watermark
+MERGE INTO my_catalog.security_monitoring.query_history_watermark t
+USING (SELECT max(start_time) AS new_ts FROM system.query_history_longterm) s
+ON t.table_name = 'query_history'
+WHEN MATCHED THEN UPDATE SET t.last_processed_timestamp = s.new_ts
+WHEN NOT MATCHED THEN INSERT (table_name, last_processed_timestamp) VALUES ('query_history', s.new_ts);
+
+
