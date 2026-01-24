@@ -1,3 +1,55 @@
+# ─── Most recommended solution ───
+
+client_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"   # ← the ID you see in executed_as
+
+query = f"""
+Resources
+| where type == 'microsoft.managedidentity/userassignedidentities'
+| where properties.clientId == '{client_id}'
+| project 
+    name,
+    resourceGroup,
+    subscriptionId,
+    principalId,
+    clientId,
+    id,
+    location
+"""
+
+from azure.identity import DefaultAzureCredential
+from azure.mgmt.resourcegraph import ResourceGraphClient
+
+credential = DefaultAzureCredential()
+
+# If you're using a cluster with UAMI attached → it will be picked up automatically
+# Otherwise you can explicitly pass client_id of UAMI you want to use for auth
+# credential = DefaultAzureCredential(managed_identity_client_id="your-uami-client-id")
+
+rg_client = ResourceGraphClient(credential)
+
+result = rg_client.resources(
+    resources = {
+        "query": query,
+        "subscriptions": []   # ← empty = search in all accessible subscriptions
+    }
+)
+
+if result.data:
+    for row in result.data:
+        print(f"UAMI Name        : {row['name']}")
+        print(f"Resource Group   : {row['resourceGroup']}")
+        print(f"Client ID        : {row['clientId']}")
+        print(f"Object ID        : {row['principalId']}")
+        print("-" * 60)
+else:
+    print("No UAMI found with this client id")
+
+
+
+
+
+
+
 from pyspark.sql.functions import regexp_replace, col
 
 df_clean = df.withColumn(
