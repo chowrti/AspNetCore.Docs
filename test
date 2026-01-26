@@ -1,3 +1,70 @@
+import requests
+import json
+
+# === Retrieve credentials from Databricks secrets ===
+client_id     = dbutils.secrets.get(scope="my-graph-scope", key="client-id")
+tenant_id     = dbutils.secrets.get(scope="my-graph-scope", key="tenant-id")
+client_secret = dbutils.secrets.get(scope="my-graph-scope", key="client-secret")
+
+# === 1. Get access token (client credentials flow) ===
+token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+
+payload = {
+    "client_id": client_id,
+    "scope": "https://graph.microsoft.com/.default",
+    "client_secret": client_secret,
+    "grant_type": "client_credentials"
+}
+
+response = requests.post(token_url, data=payload)
+response.raise_for_status()
+access_token = response.json()["access_token"]
+print("✅ Token acquired")
+
+# === 2. Send email ===
+user_principal_name = "sender@yourdomain.com"   # ← The mailbox you want to send FROM
+graph_url = f"https://graph.microsoft.com/v1.0/users/{user_principal_name}/sendMail"
+
+email_body = {
+    "message": {
+        "subject": "Test Email from Databricks",
+        "body": {
+            "contentType": "HTML",
+            "content": "<h1>Hello from Databricks!</h1><p>This email was sent via Microsoft Graph API.</p>"
+        },
+        "toRecipients": [
+            {
+                "emailAddress": {
+                    "address": "recipient@yourdomain.com"
+                }
+            }
+        ],
+        # Optional: ccRecipients, bccRecipients
+        # Optional: attachments (base64 encoded)
+    },
+    "saveToSentItems": True
+}
+
+headers = {
+    "Authorization": f"Bearer {access_token}",
+    "Content-Type": "application/json"
+}
+
+response = requests.post(graph_url, headers=headers, json=email_body)
+
+if response.status_code == 202:
+    print("✅ Email accepted for delivery")
+else:
+    print(f"❌ Error: {response.status_code}")
+    print(response.text)
+
+
+
+
+
+
+
+
 # ─── Most recommended solution ───
 
 client_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"   # ← the ID you see in executed_as
