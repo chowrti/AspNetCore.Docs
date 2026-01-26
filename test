@@ -1,3 +1,97 @@
+ALTER TABLE your_catalog.your_schema.query_history_longterm
+ADD COLUMNS (
+  ingestion_ts TIMESTAMP,
+  email_processed_flag BOOLEAN
+);
+
+
+
+
+-- In your ingestion task (e.g. scheduled notebook %sql or pure SQL job)
+INSERT INTO your_catalog.your_schema.query_history_longterm
+SELECT 
+  *, 
+  current_timestamp() AS ingestion_ts,
+  FALSE AS email_processed_flag
+FROM system.query.history
+WHERE start_time > (SELECT COALESCE(MAX(ingestion_ts), TIMESTAMP '1900-01-01') FROM your_catalog.your_schema.query_history_longterm)
+
+
+
+
+
+from pyspark.sql.functions import col
+from delta.tables import DeltaTable
+
+target_table = "your_catalog.your_schema.query_history_longterm"
+delta_target = DeltaTable.forName(spark, target_table)
+
+# Find unprocessed records
+unprocessed = (
+    spark.read.table(target_table)
+    .filter((col("email_processed_flag") == False) | col("email_processed_flag").isNull())
+    # Optional: add filters, e.g. .filter("execution_status = 'FAILED'") or time window
+)
+
+if unprocessed.count() > 0:
+    # Your email logic here (example placeholder)
+    # Loop or batch-send emails based on unprocessed rows
+    # For each row: send email about failed/cancelled query, using statement_text, executed_by, error_message, etc.
+    # Example: print for demo
+    unprocessed.select("statement_id", "executed_by_user_name", "statement_text", "error_message").show(truncate=False)
+    
+    # Simulate sending (replace with real email code)
+    print("Sending emails for above records...")
+
+    # Update flag for processed rows (safe: only those we just read)
+    # Option A: Simple update on the whole set (if all succeeded)
+    delta_target.update(
+        condition = (col("email_processed_flag") == False) | col("email_processed_flag").isNull(),
+        set = {"email_processed_flag": lit(True)}
+    )
+
+    # Option B: If some emails fail, update only successful ones (more complex; track per-row)
+
+
+
+
+
+from pyspark.sql.functions import col, current_timestamp, lit
+from delta.tables import DeltaTable
+
+target_table = "your_catalog.your_schema.query_history_longterm"
+source_table = "system.query.history"
+
+# Get last ingested timestamp (from ingestion_ts now, more reliable than start_time alone)
+max_ts_df = spark.sql(f"SELECT COALESCE(MAX(ingestion_ts), '1900-01-01') AS max_ts FROM {target_table}")
+max_ts = max_ts_df.collect()[0]["max_ts"]
+
+# Fetch new data with buffer
+new_data = (
+    spark.read.table(source_table)
+    .filter(col("start_time") > max_ts)  # still use start_time to avoid re-fetching everything
+    .withColumn("ingestion_ts", current_timestamp())
+    .withColumn("email_processed_flag", lit(False))  # default unprocessed
+)
+
+if new_data.count() > 0:
+    # Append (fastest, since statement_id + workspace_id should be unique)
+    new_data.write.format("delta").mode("append").saveAsTable(target_table)
+
+    # Or safer MERGE if you see duplicates occasionally
+    # delta_target = DeltaTable.forName(spark, target_table)
+    # delta_target.alias("target").merge(
+    #     new_data.alias("source"),
+    #     "target.statement_id = source.statement_id AND target.workspace_id = source.workspace_id"
+    # ).whenNotMatchedInsertAll().execute()
+
+
+
+
+
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 import requests
 import json
 
