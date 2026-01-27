@@ -1,3 +1,24 @@
+CREATE TABLE IF NOT EXISTS governance.access.allowed_actors (
+  policy_name        STRING,
+  actor_type         STRING,        -- 'USER' | 'SPN' | 'UAMI'
+  actor_id           STRING,        -- stable ID if you have it (recommended)
+  actor_name         STRING,        -- email or display name (optional but useful)
+  active             BOOLEAN,
+  effective_from     TIMESTAMP,
+  effective_to       TIMESTAMP,
+  approved_by        STRING,
+  ticket             STRING,
+  notes              STRING,
+  created_at         TIMESTAMP,
+  created_by         STRING,
+  updated_at         TIMESTAMP,
+  updated_by         STRING
+)
+USING DELTA;
+
+
+
+
 SELECT
   q.statement_id,
   q.executed_by,
