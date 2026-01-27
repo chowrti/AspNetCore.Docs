@@ -1,3 +1,9 @@
+INSERT INTO governance.access.allowed_actors VALUES
+('finance_readonly', 'USER', 'jane.doe@company.com', 'jane.doe@company.com', true, current_timestamp(), NULL, 'security-team', 'INC12345', NULL, current_timestamp(), current_user(), current_timestamp(), current_user()),
+('finance_readonly', 'SPN',  '00000000-0000-0000-0000-000000000000', 'spn-finance-bi', true, current_timestamp(), NULL, 'security-team', 'INC12346', NULL, current_timestamp(), current_user(), current_timestamp(), current_user());
+
+
+
 CREATE TABLE IF NOT EXISTS governance.access.allowed_actors (
   policy_name        STRING,
   actor_type         STRING,        -- 'USER' | 'SPN' | 'UAMI'
