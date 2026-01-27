@@ -1,3 +1,18 @@
+SELECT
+  q.statement_id,
+  q.executed_by,
+  q.start_time,
+  t.catalog_name,
+  t.schema_name,
+  t.table_name,
+  t.access_type   -- READ / WRITE
+FROM system.query.history q
+JOIN system.query.table_lineage t
+  ON q.statement_id = t.statement_id
+WHERE q.statement_type = 'SELECT';
+
+
+
 statement_id
 start_time
 end_time
