@@ -1,36 +1,83 @@
-SELECT 
-  statement_id,
-  executed_by_user_name,
-  query_start_time,
-  statement_text,
-  
-  -- Extract potential fully-qualified tables (catalog.schema.table or schema.table)
-  regexp_extract_all(
-    lower(statement_text), 
-    '(?:from|join)\\s+([a-z0-9_]+\\.[a-z0-9_]+\\.[a-z0-9_]+|[a-z0-9_]+\\.[a-z0-9_]+)\\b', 
-    1
-  ) AS potential_tables,
-  
-  -- Extract any USE CATALOG / USE statements (rare but useful)
-  regexp_extract_all(
-    lower(statement_text), 
-    'use\\s+catalog\\s+([a-z0-9_]+)', 
-    1
-  ) AS used_catalogs,
-  
-  regexp_extract_all(
-    lower(statement_text), 
-    'use\\s+([a-z0-9_]+)', 
-    1
-  ) AS used_schemas   -- catches USE schema too
+from pyspark.sql.functions import (
+    col, lower, regexp_extract_all, explode, 
+    array_distinct, when, size, current_timestamp
+)
 
-FROM system.query.history
-WHERE query_start_time >= current_timestamp() - INTERVAL 7 DAY
-  AND statement_type = 'QUERY'  -- or filter by executed_as_user_name, etc.
-  AND statement_text IS NOT NULL  -- skipped if customer-managed keys enabled
-ORDER BY query_start_time DESC
-LIMIT 100;
+# === Step 1: Read the system.query.history table ===
+# Filter to recent queries (adjust interval as needed)
+df = spark.table("system.query.history") \
+    .where(col("query_start_time") >= current_timestamp() - expr("INTERVAL 7 DAYS")) \
+    .where(col("statement_type") == "QUERY") \
+    .where(col("statement_text").isNotNull()) \
+    .select(
+        "statement_id",
+        "query_start_time",
+        "executed_by_user_name",
+        "statement_text",
+        "statement_type",
+        "executed_as_user_name"
+    )
 
+# === Step 2: Normalize and extract table-like patterns with regex ===
+# Common patterns we want to catch:
+#   catalog.schema.table
+#   schema.table
+#   table   (unqualified – harder to resolve without context)
+
+df_with_extracted = df.withColumn(
+    "normalized_sql", 
+    lower(col("statement_text"))
+).withColumn(
+    # Extract anything that looks like a 1–3 part identifier after FROM/JOIN/INSERT/UPDATE/MERGE/etc.
+    "potential_table_refs",
+    regexp_extract_all(
+        col("normalized_sql"),
+        r"(?:from|join|insert\s+into|update|merge\s+into|create\s+or\s+replace\s+view|create\s+view|drop\s+table|alter\s+table)\s+([a-z0-9_]+\.[a-z0-9_]+\.[a-z0-9_]+|[a-z0-9_]+\.[a-z0-9_]+|[a-z0-9_]+)\b",
+        1
+    )
+).withColumn(
+    # Also try to catch USE CATALOG / USE statements
+    "used_catalog",
+    regexp_extract_all(col("normalized_sql"), r"use\s+catalog\s+([a-z0-9_]+)", 1)
+).withColumn(
+    "used_schema",
+    regexp_extract_all(col("normalized_sql"), r"use\s+([a-z0-9_]+)", 1)
+)
+
+# === Step 3: Explode the array of extracted tables for easier analysis ===
+df_exploded = df_with_extracted \
+    .withColumn("table_ref", explode(col("potential_table_refs"))) \
+    .withColumn("table_ref_clean", 
+        when(col("table_ref").contains("."), col("table_ref"))
+         .otherwise(concat(lit("???.???."), col("table_ref")))  # mark unqualified
+    ) \
+    .select(
+        "statement_id",
+        "query_start_time",
+        "executed_by_user_name",
+        "statement_text",
+        "table_ref_clean",
+        size("potential_table_refs").alias("table_count"),
+        "used_catalog",
+        "used_schema"
+    )
+
+# === Step 4: Show results (deduplicate per statement if you want cleaner view) ===
+display(
+    df_exploded
+    .orderBy(col("query_start_time").desc())
+    .limit(200)
+)
+
+# Optional: Most accessed tables (approximate)
+df_exploded.groupBy("table_ref_clean") \
+    .agg(
+        count("*").alias("access_count"),
+        min("query_start_time").alias("first_seen"),
+        max("query_start_time").alias("last_seen")
+    ) \
+    .orderBy(col("access_count").desc()) \
+    .display()
 
 
 
