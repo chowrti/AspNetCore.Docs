@@ -1,3 +1,28 @@
+# Install via notebook (if allowed): %pip install sqlglot
+import sqlglot
+
+def extract_tables(sql_text):
+    try:
+        parsed = sqlglot.parse_one(sql_text, read='databricks')  # Databricks dialect support
+        tables = parsed.find_all(sqlglot.exp.Table)
+        return [f"{t.catalog or ''}.{t.db or ''}.{t.name}" for t in tables if t.name]
+    except:
+        return ["PARSE_ERROR"]
+
+# Apply to DF
+from pyspark.sql.functions import udf
+extract_udf = udf(extract_tables, ArrayType(StringType()))
+
+df = spark.table("system.query.history").select(
+    "statement_id", "statement_text", 
+    extract_udf("statement_text").alias("extracted_tables")
+)
+df.show(truncate=False)
+
+
+
+--------------------
+
 table_name = "your_catalog.your_schema.query_history_longterm"
 
 # Get current columns (case-insensitive)
