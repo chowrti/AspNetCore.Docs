@@ -1,3 +1,133 @@
+As a **Principal Architect** specializing in Azure data platforms, here's a clear, production-oriented guide to creating a **simple yet robust Azure Data Factory (ADF) pipeline** that reads multiple Parquet tables (folders/files) from **Azure Data Lake Storage Gen2 (ADLS Gen2)**.
+
+This example assumes a common pattern:  
+- Read Parquet files from a few source folders in ADLS Gen2 (Bronze/raw zone).  
+- Optionally copy/transform them to another location (e.g., Silver zone, another container, or database).  
+For simplicity, we'll copy the Parquet data as-is (or merge small files) to a target ADLS folder — a frequent starting point before adding transformations.
+
+### Prerequisites (Everything You Need Before Starting)
+
+| #  | Prerequisite                              | Details / Why Required                                                                 | Owner / Action Needed                          |
+|----|-------------------------------------------|----------------------------------------------------------------------------------------|------------------------------------------------|
+| 1  | Active Azure Subscription                 | ADF and ADLS Gen2 require an Azure subscription                                       | Subscription Owner / Create free trial if needed |
+| 2  | Azure Data Factory instance (v2)          | The orchestration service. Use ADF in a region close to your storage for performance | Create via Azure Portal → Search "Data factories" |
+| 3  | Azure Data Lake Storage Gen2 account      | Hierarchical namespace **must** be enabled (it's the default for new Gen2 accounts)   | Create Storage Account → Enable "Hierarchical namespace" |
+| 4  | At least one container in ADLS Gen2       | e.g., `bronze`, `silver`                                                               | Create container(s) in the storage account     |
+| 5  | Parquet files already present             | Folders like `/bronze/sales/year=2025/month=01/` with `.parquet` or `.snappy.parquet` files | Upload test files or use existing data         |
+| 6  | Permissions (RBAC)                        | - **Contributor** or **Owner** on ADF & Storage resource groups<br>- Storage Blob Data Contributor / Reader on the ADLS account (or via ABAC) | Assign roles via Azure Portal → Access control (IAM) |
+| 7  | Managed Identity or Access Key (recommended: Managed Identity) | ADF uses this to authenticate to ADLS Gen2 without secrets                             | Enable system-assigned managed identity on ADF |
+| 8  | Browser + Azure Portal / ADF Studio       | Authoring UI (modern ADF authoring experience)                                         | Access via https://adf.azure.com               |
+| 9  | (Optional but recommended)                | Azure Key Vault (for secrets if using account key instead of MI)                       | —                                              |
+|10  | Basic familiarity with ADF concepts       | Linked Services, Datasets, Pipelines, Activities                                       | —                                              |
+
+**Security note (2026 best practice)**:  
+Always prefer **system-assigned managed identity** + **Storage Blob Data Contributor** role scoped to the container(s). Avoid account keys in production.
+
+### Step-by-Step: Create a Simple ADF Pipeline to Read Parquet Files
+
+#### Phase 1 – Prepare Linked Service & Datasets
+
+1. **Open ADF Studio**  
+   Azure Portal → Your Data Factory → Launch studio (or go directly to adf.azure.com)
+
+2. **Create Linked Service to ADLS Gen2 (Source & Target can share one)**  
+   - Manage tab → Linked services → New  
+   - Search & select **Azure Data Lake Storage Gen2**  
+   - Name: `LS_ADLS_Main` (or similar)  
+   - Connect via **Managed Identity** (recommended) → Test connection  
+     - If using account key: select Account key → paste from Storage Account → Keys  
+   - Save
+
+3. **Create Source Dataset (Parquet – parameterized for flexibility)**  
+   - Author tab → Datasets → New dataset  
+   - Azure Data Lake Storage Gen2 → Continue  
+   - Format: **Parquet** → Continue  
+   - Linked service: `LS_ADLS_Main`  
+   - Name: `DS_Source_Parquet`  
+   - **Parameters** tab: Add two parameters  
+     - `Container` (String, default: `bronze`)  
+     - `FolderPath` (String, default: `sales`)  
+   - Connection tab → File path:  
+     - Container = `@dataset().Container`  
+     - Directory = `@dataset().FolderPath`  
+   - Save
+
+4. **Create Target Dataset (similar – Parquet sink)**  
+   - New dataset → Azure Data Lake Storage Gen2 → Parquet  
+   - Name: `DS_Target_Parquet`  
+   - Linked service: same `LS_ADLS_Main`  
+   - Parameters: `TargetContainer` (default: `silver`), `TargetFolder` (default: `processed/sales`)  
+   - File path: use parameters like source  
+   - (Optional) Compression: Snappy or none
+
+#### Phase 2 – Build the Pipeline
+
+5. **Create New Pipeline**  
+   - Author tab → Pipelines → New pipeline  
+   - Name: `PL_Read_Parquet_Tables`
+
+6. **Add Copy Activity (one per table – or use ForEach for multiple)**  
+   Simple version (3 tables = 3 copy activities):
+
+   - Drag **Copy data** activity from Activities → Move & Transform  
+   - Name: `Copy_Sales_Parquet`  
+   - Source tab:  
+     - Source dataset: `DS_Source_Parquet`  
+     - Dataset properties:  
+       - Container = `bronze`  
+       - FolderPath = `sales/year=*/month=*`   (wildcard to read all partitions)  
+   - Sink tab:  
+     - Sink dataset: `DS_Target_Parquet`  
+     - Dataset properties:  
+       - TargetContainer = `silver`  
+       - TargetFolder = `sales`  
+     - Copy behavior: **PreserveHierarchy** (or FlattenHierarchy / MergeFiles if small files)  
+   - Settings tab:  
+     - Enable **Fault tolerance** if desired (skip incompatible rows)  
+     - Logging level: Basic or Information
+
+   Repeat for other tables (e.g., `customers`, `products`) by copying the activity and changing folder paths.
+
+7. **(Better scalability) Use ForEach + Get Metadata for multiple tables**  
+   - Add **Get Metadata** activity → get child folders from `/bronze`  
+   - Add **ForEach** activity → items = `@activity('Get Metadata').output.childItems`  
+   - Inside ForEach: Add Copy activity with dynamic content:  
+     - FolderPath = `@item().name`
+
+#### Phase 3 – Test & Publish
+
+8. **Debug the pipeline**  
+   - Click **Debug** → monitor progress  
+   - Check output JSON, row counts, errors  
+   - Validate files appeared in target folder
+
+9. **Publish All**  
+   - Click Publish → publish changes to factory
+
+10. **Trigger (manual or schedule)**  
+    - Add trigger: Manual / Schedule / Tumbling window  
+    - For production: use **Event trigger** (blob created) or **Schedule trigger**
+
+### Quick Architecture Summary (Medallion Style)
+
+- **Bronze** (`bronze` container): raw Parquet as landed  
+- **Silver** (`silver` container): cleaned / lightly transformed Parquet (this pipeline copies here)  
+- Later add: Mapping Data Flow or Databricks for transformations
+
+This pattern is used in production at scale — simple to maintain, cost-effective (serverless), and easy to extend with parameters, metadata-driven tables, or incremental logic.
+
+If you need:
+- Incremental load (watermark / last modified)
+- Merge small files
+- Load to Synapse / Fabric Lakehouse / SQL DB
+- Error handling & alerting
+
+...let me know — I can extend the design accordingly.
+
+
+
+--------------------
+
 from pyspark.sql.functions import (
     col, lower, regexp_extract_all, explode, 
     array_distinct, when, size, current_timestamp
