@@ -1,7 +1,8 @@
 table_name = "your_catalog.your_schema.query_history_longterm"
 
-# Get current columns (case-insensitive check recommended)
-existing_cols = {col.lower(): col for col in spark.sql(f"DESCRIBE TABLE {table_name}").select("col_name").collect()}
+# Get current columns (case-insensitive)
+desc_df = spark.sql(f"DESCRIBE TABLE {table_name}")
+existing_cols = {row["col_name"].lower(): row["col_name"] for row in desc_df.collect()}
 
 columns_to_add = [
     ("ingestion_ts", "TIMESTAMP"),
@@ -21,8 +22,7 @@ for col_name, col_type in columns_to_add:
 if added:
     print(f"Added columns: {', '.join(added)}")
 else:
-    print("All columns already exist — no changes made")
-
+    print("All required columns already exist — no changes made")
 
 
 
