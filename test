@@ -1,3 +1,31 @@
+EXEC master.dbo.sp_addlinkedserver 
+    @server         = N'DATABRICKS_DSNLESS',          -- Friendly name for the linked server (use in queries)
+    @srvproduct     = N'Databricks SQL',
+    @provider       = N'MSDASQL',                     -- Microsoft OLE DB Provider for ODBC Drivers
+    @datasrc        = NULL,                           -- Leave blank for DSN-less
+    @provstr        = N'Driver={Simba Spark ODBC Driver};'
+                     + N'Host=adb-1234567890123456.7.azuredatabricks.net;'  -- ← your hostname
+                     + N'Port=443;'
+                     + N'HTTPPath=/sql/1.0/warehouses/abc123def456789;'     -- ← your HTTP Path
+                     + N'SSL=1;'
+                     + N'ThriftTransport=2;'           -- HTTP transport
+                     + N'SparkServerType=3;'           -- 3 = SQL Warehouse (use 1 for interactive cluster)
+                     + N'AuthMech=3;'                  -- 3 = User Name + Password (token)
+                     + N'UID=token;'
+                     + N'PWD=your_personal_access_token_here;'  -- ← your PAT (keep secure!)
+                     + N'Catalog=main;';               -- Optional: sets default catalog (e.g. main, hive_metastore, or custom Unity Catalog)
+
+-- Add security/login mapping (token-based, no Windows auth usually)
+EXEC master.dbo.sp_addlinkedsrvlogin 
+    @rmtsrvname = N'DATABRICKS_DSNLESS',
+    @useself    = N'False',
+    @locallogin = NULL,                       -- Applies to all local logins
+    @rmtuser    = N'token',
+    @rmtpassword = N'your_personal_access_token_here';  -- Same PAT as above
+
+
+---------------
+
 As a **Principal Architect** specializing in Azure data platforms, here's a clear, production-oriented guide to creating a **simple yet robust Azure Data Factory (ADF) pipeline** that reads multiple Parquet tables (folders/files) from **Azure Data Lake Storage Gen2 (ADLS Gen2)**.
 
 This example assumes a common pattern:  
