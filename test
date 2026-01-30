@@ -1,3 +1,27 @@
+EXEC master.dbo.sp_addlinkedserver 
+    @server         = N'DATABRICKS_UAMI',              -- Your chosen linked server name
+    @srvproduct     = N'Databricks',
+    @provider       = N'MSDASQL',                      -- OLE DB Provider for ODBC
+    @datasrc        = NULL,                            -- DSN-less, so blank
+    @provstr        = N'Driver={Simba Spark ODBC Driver};'
+                    + N'Host=adb-1234567890123456.7.azuredatabricks.net;'  -- ← your hostname
+                    + N'Port=443;'
+                    + N'HTTPPath=/sql/1.0/warehouses/your-warehouse-id;'   -- ← your HTTP Path
+                    + N'SSL=1;'
+                    + N'ThriftTransport=2;'
+                    + N'SparkServerType=3;'            -- 3 = SQL Warehouse
+                    + N'AuthMech=11;'                  -- OAuth 2.0
+                    + N'Auth_Flow=3;'                  -- Azure Managed Identity flow
+                    + N'Auth_Client_ID=123e4567-e89b-12d3-a456-426614174000;'  -- ← YOUR UAMI Client ID here
+                    + N'Azure_workspace_resource_id=/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/your-rg/providers/Microsoft.Databricks/workspaces/your-ws-name;'
+                    + N'Catalog=main;';                -- Optional: default catalog
+
+-- No sp_addlinkedsrvlogin needed for managed identity flow (no UID/PWD)
+-- The driver acquires token automatically via IMDS
+
+
+-------------
+
 from pyspark.sql.functions import col, explode, regexp_extract_all, lower, regexp_replace
 import re
 
