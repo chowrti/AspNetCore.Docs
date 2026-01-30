@@ -1,3 +1,75 @@
+from pyspark.sql.functions import col, explode, regexp_extract_all, lower, regexp_replace
+import re
+
+# Step 1: Fetch recent queries (adjust filters)
+df_queries = spark.sql("""
+  SELECT 
+    statement_id,
+    executed_by,
+    start_time,
+    statement_type,
+    statement_text
+  FROM system.query.history
+  WHERE start_time >= current_timestamp() - INTERVAL 7 DAY
+    AND statement_type IN ('SELECT', 'INSERT', 'UPDATE', 'MERGE', 'DELETE')  -- focus on DML/DQL
+    AND statement_text IS NOT NULL
+  ORDER BY start_time DESC
+  LIMIT 500   -- for testing; remove in prod
+""")
+
+# Step 2: Clean text a bit (remove comments, extra whitespace)
+df_clean = df_queries.withColumn(
+    "clean_text",
+    regexp_replace(lower(col("statement_text")), r'--.*?$|/\*.*?\*/|\s+', ' ')
+)
+
+# Step 3: Regex to find potential table references
+# Pattern explanation:
+#   \\b([a-z0-9_]+\\.)?([a-z0-9_]+\\.)?([a-z0-9_]+)\\b
+#   → optional catalog. + optional schema. + table
+#   Look for FROM/JOIN/INTO clauses roughly
+pattern = r'(?:from|join|into|update|merge|describe|describe history)\s+([a-z0-9_]+(?:\.[a-z0-9_]+){0,2})\b'
+
+df_extracted = df_clean.withColumn(
+    "potential_refs",
+    regexp_extract_all(col("clean_text"), lit(pattern), lit(1))
+).withColumn(
+    "table_refs", explode(col("potential_refs"))
+).filter(col("table_refs").isNotNull())
+
+# Step 4: Split into catalog/schema/table
+df_parsed = df_extracted.withColumn(
+    "parts", 
+    split(regexp_replace(col("table_refs"), r'[^a-z0-9_\.]', ''), r'\.')
+).withColumn(
+    "num_parts", size(col("parts"))
+).withColumn(
+    "catalog",
+    when(col("num_parts") == 3, element_at(col("parts"), 1))
+      .otherwise(lit(None))
+).withColumn(
+    "schema",
+    when(col("num_parts") == 3, element_at(col("parts"), 2))
+      .when(col("num_parts") == 2, element_at(col("parts"), 1))
+      .otherwise(lit(None))
+).withColumn(
+    "table",
+    when(col("num_parts") == 3, element_at(col("parts"), 3))
+      .when(col("num_parts") == 2, element_at(col("parts"), 2))
+      .when(col("num_parts") == 1, element_at(col("parts"), 1))
+      .otherwise(lit(None))
+)
+
+# Display results
+display(df_parsed.select(
+    "statement_id", "executed_by", "start_time", 
+    "statement_text", "catalog", "schema", "table"
+).orderBy(col("start_time").desc()))
+
+
+
+-----------------
+
 EXEC master.dbo.sp_addlinkedserver 
     @server         = N'DATABRICKS_DSNLESS',          -- Friendly name for the linked server (use in queries)
     @srvproduct     = N'Databricks SQL',
