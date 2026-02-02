@@ -1,3 +1,26 @@
+from pyspark.sql.functions import col, lower
+
+# Get list of sensitive full names (or table names) - broadcast small lookup
+sensitive_list = [row.full_table_name for row in sensitive_df.select("full_table_name").distinct().collect()]
+# or just table_name if you don't have full qualified: sensitive_list = [row.table_name ...]
+
+# For better performance on small lookup → use broadcast hint or collect to array
+sensitive_broadcast = sensitive_df.select("full_table_name").distinct()
+
+# Filter df1: keep rows where statement_text does NOT contain ANY sensitive full name
+df_filtered = df1.join(
+    sensitive_broadcast.hint("broadcast"),
+    lower(col("statement_text")).contains(lower(col("full_table_name"))),
+    "left_anti"   # ← key: left anti join = rows from left with NO match on condition
+)
+
+df_filtered.show(truncate=False)
+
+
+
+---------------------
+
+
 -- 1. Create the lookup table (one row per sensitive table)
 CREATE TABLE IF NOT EXISTS governance.sensitive_monitoring.sensitive_tables (
   catalog_name     STRING NOT NULL COMMENT 'e.g., main, finance, hr',
