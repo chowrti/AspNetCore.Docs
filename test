@@ -1,3 +1,43 @@
+Here are concise, high-level bullet points you can use directly on a PowerPoint slide about the **system.query.history** table in Databricks Unity Catalog:
+
+- **Query Execution Metadata**
+  - statement_id (unique query identifier)
+  - start_time / end_time (precise timestamps)
+  - duration_ms (execution time)
+  - execution_status (FINISHED, FAILED, CANCELLED, etc.)
+
+- **User & Context**
+  - executed_by_user_name / executed_by_user_id
+  - workspace_id / account_id
+  - source_ip_address (client location)
+  - client_application (e.g., Tableau, Databricks SQL, notebook, JDBC)
+
+- **Query Content**
+  - statement_text (full SQL query – searchable)
+  - statement_type (SELECT, INSERT, UPDATE, CREATE, DROP, etc.)
+  - query_id (links to lineage & audit tables)
+
+- **Performance & Resource Usage**
+  - total_bytes_processed
+  - rows_produced / rows_scanned
+  - bytes_written (for DML)
+  - compute_cluster_id / warehouse_id (which compute ran it)
+
+- **Governance & Auditing Use Cases**
+  - Track who ran what query and when
+  - Identify queries touching sensitive tables (via text search or lineage join)
+  - Monitor expensive / long-running queries
+  - Detect unusual access patterns (e.g., spikes in SELECTs on PII tables)
+
+These points focus on the most commonly used / valuable fields for governance, performance tuning, and security monitoring slides.
+
+Feel free to copy-paste and format them as bullets or icons on your slide! If you need a version tailored for compliance vs performance audience, let me know.
+
+
+
+------------
+
+
 from pyspark.sql.functions import col, lower
 
 # Get list of sensitive full names (or table names) - broadcast small lookup
