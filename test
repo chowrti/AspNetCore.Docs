@@ -7,16 +7,16 @@ SELECT
   user_identity.email AS changed_by,
   request_params.securable_full_name AS object_affected,
   request_params.securable_type AS object_type,
-  explode(request_params.changes) AS change_detail,
-  change_detail.principal AS affected_principal,
-  change_detail.add AS granted_privileges,
-  change_detail.remove AS revoked_privileges
+  c.principal AS affected_principal,
+  c.add AS granted_privileges,
+  c.remove AS revoked_privileges
 FROM system.access.audit
+LATERAL VIEW explode(request_params.changes) AS c   -- ← 'c' is the alias for each exploded row (struct)
 WHERE service_name = 'unityCatalog'
   AND action_name = 'updatePermissions'
+  AND request_params.changes IS NOT NULL
   AND event_time >= current_timestamp() - INTERVAL 7 DAY
 ORDER BY event_time DESC;
-
 
 
 
