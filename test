@@ -1,3 +1,5 @@
+explode(from_json(request_params.changes, 'array<struct<principal:string,add:array<string>,remove:array<string>>>')) AS exploded
+
 
 
 SELECT 
