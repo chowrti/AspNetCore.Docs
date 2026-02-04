@@ -1,96 +1,22 @@
-Here are suggested **bullet points** and slide structure ideas for your **PowerPoint presentation/demo** on this security controls project. These are concise, professional, and focused on explaining the value, how it works, and key benefits during a demo.
 
-### Slide Title Ideas & Bullet Points
 
-**Slide 1: Project Overview – Inadvertent Access Monitoring for Sensitive Data**
+SELECT 
+  event_time,
+  user_identity.email AS changed_by,
+  request_params.securable_full_name AS object_affected,
+  request_params.securable_type AS object_type,
+  explode(request_params.changes) AS change_detail,
+  change_detail.principal AS affected_principal,
+  change_detail.add AS granted_privileges,
+  change_detail.remove AS revoked_privileges
+FROM system.access.audit
+WHERE service_name = 'unityCatalog'
+  AND action_name = 'updatePermissions'
+  AND event_time >= current_timestamp() - INTERVAL 7 DAY
+ORDER BY event_time DESC;
 
-- Objective: Detect and alert on unauthorized or inadvertent SQL queries accessing sensitive tables in the data lake (Unity Catalog)
-- Risk addressed: Accidental exposure of PII, financial, PHI, or other regulated data via ad-hoc queries, misconfigured tools, or human error
-- Scope: Near real-time alerting for SELECT activity on flagged sensitive objects
-- Key benefit: Proactive governance + audit readiness without blocking legitimate access
 
-**Slide 2: Solution Architecture – High-Level Flow**
 
-- Unity Catalog + system.query.history table → Core source of truth for all query activity
-- Sensitive Tables Lookup → Curated table listing protected objects (catalog.schema.table + metadata)
-- Allowed Actors Whitelist → Table of approved accounts/groups (no alerts triggered)
-- Monitoring Job/Workflow → Scheduled notebook or Delta Live Tables pipeline
-  - Queries system.query.history periodically (e.g., every 5–15 min)
-  - Filters for SELECT statements + sensitive table references (text match or lineage join)
-  - Excludes allowed actors
-  - Triggers alert if match found
-- Alert Delivery → Email (Graph API / Logic App), Teams/Slack webhook, or PagerDuty
-
-**Slide 3: Core Data Sources**
-
-- system.query.history (Unity Catalog system table)
-  - Captures every query: statement_text, executed_by_user_name, start_time, statement_type, compute details
-  - Retention: 365 days (regional)
-  - Near real-time: Updated throughout the day (not instant, but sufficient for near-real-time alerting)
-- Sensitive Tables Lookup (custom table)
-  - Columns: full_table_name, sensitivity_level (PII/Financial/etc.), owner_team, is_active
-- Allowed Actors Whitelist (custom table)
-  - Columns: user_name / service_principal / group_name, justification, approved_by, expiry_date
-
-**Slide 4: Detection Logic – How We Identify Inadvertent Access**
-
-- Filter criteria:
-  - statement_type = 'SELECT' (focus on reads)
-  - statement_text contains sensitive full_table_name (case-insensitive LIKE / contains)
-  - executed_by_user_name NOT IN allowed_actors
-- Optional enhancement: Join with system.access.table_lineage
-  - More accurate than text search (resolves views, CTEs, joins)
-  - Captures actual accessed tables (action_type = 'READ')
-- Exclusion logic: Whitelist prevents alert fatigue for approved users (e.g., data stewards, auditors)
-
-**Slide 5: Alerting Mechanism & Near Real-Time Approach**
-
-- Scheduled monitoring job (Databricks Workflows / Jobs)
-  - Frequency: 5–15 minutes (balance latency vs cost)
-  - Query window: Last run time → current_timestamp()
-- Alert content example:
-  - Query executed by: user@company.com
-  - Time: 2026-02-03 14:30 UTC
-  - Sensitive table(s): main.finance.customer_payments
-  - Full query snippet
-  - Link to query history / lineage
-- Delivery: Email to security team + optional escalation (high-sensitivity tables)
-
-**Slide 6: Demo Highlights (Live Walkthrough Suggestions)**
-
-- Show sensitive_tables & allowed_actors tables (SELECT sample rows)
-- Run sample monitoring query live (e.g., last hour's matches)
-- Simulate inadvertent access: Run SELECT on sensitive table from non-whitelisted user
-- Show alert received (email / Teams message)
-- Demonstrate exclusion: Query from allowed actor → no alert
-- Optional: Show lineage join for accuracy vs text search
-
-**Slide 7: Benefits & Outcomes**
-
-- Early detection of risky access before data exfiltration or compliance violation
-- Reduced manual audit effort – automated, auditable monitoring
-- Low false positives via whitelist + optional lineage
-- Governance alignment: Supports SOX, GDPR, HIPAA, etc. requirements
-- Scalable: Leverages native Unity Catalog system tables (no external agents)
-
-**Slide 8: Next Steps & Roadmap**
-
-- Phase 1: MVP with text-based detection + email alerts
-- Phase 2: Integrate table_lineage for higher fidelity
-- Phase 3: Add column-level checks (if data_classification enabled)
-- Phase 4: Auto-remediation (e.g., temporary revoke) or dashboard in Databricks SQL
-- Ongoing: Maintain sensitive/allowed lists via governance process
-
-### Additional Suggestions for Your Deck
-- Use simple icons: Eye for monitoring, Shield for security, Bell for alerts, Table for lookups
-- Include 1–2 screenshots: Query results, sample alert email, lineage graph from Catalog Explorer
-- Add a timeline: "Query runs → system table updated → monitoring job detects → alert sent (within ~10–20 min)"
-- Emphasize: "No performance impact on users – reads system tables only"
-- Call out limitations: Not truly real-time (system tables update throughout the day), text search has potential false positives/negatives → lineage as future improvement
-
-These bullets keep slides clean (3–6 per slide max) while telling a clear story: problem → solution → how it works → value → demo proof.
-
-If you want more detail on any slide (e.g., sample query code for the monitoring job or alert template text), just let me know! Good luck with the presentation.
 
 ------------
 
