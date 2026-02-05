@@ -1,3 +1,17 @@
+df = spark.table("my_catalog.my_schema.old_managed_sales")
+
+df.write \
+    .format("delta") \
+    .mode("overwrite") \                    # or "append" if needed
+    .option("path", "abfss://mycontainer@mystorageaccount.dfs.core.windows.net/curated/sales/daily/") \
+    .saveAsTable("my_catalog.my_schema.new_external_sales")
+
+----------------
+
+
+
+
+
 -- Step 1: Create the new external table (empty) with LOCATION
 -- Replace placeholders with your values
 CREATE TABLE my_catalog.my_schema.new_external_sales
