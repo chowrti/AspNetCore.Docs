@@ -1,3 +1,21 @@
+from pyspark.sql.functions import coalesce, col, count, sum, when
+
+# Add the coalesced column first (or just use it inline)
+summary = comparison.groupBy(
+    coalesce(col("primary_catalog"), col("dr_catalog")).alias("catalog")
+).agg(
+    count("*").alias("total_compared"),
+    sum(when(col("missing_in_dr"), 1).otherwise(0)).alias("missing_in_dr"),
+    sum(when(col("missing_in_primary"), 1).otherwise(0)).alias("missing_in_primary"),
+    sum(when(col("column_signature_mismatch"), 1).otherwise(0)).alias("sig_mismatch"),
+    sum(when(col("type_mismatch"), 1).otherwise(0)).alias("type_mismatch")
+)
+
+display(summary)
+
+
+-------
+
 df = spark.table("my_catalog.my_schema.old_managed_sales")
 
 df.write \
