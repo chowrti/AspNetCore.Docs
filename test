@@ -1,3 +1,23 @@
+df_tables = spark.sql("""
+    SELECT 
+      table_catalog        AS catalog_name,
+      table_schema         AS schema_name,
+      table_name,
+      is_insertable_into,
+      table_owner,
+      -- no table_type column exists
+      CASE WHEN v.table_name IS NOT NULL THEN 'VIEW' ELSE 'TABLE' END AS object_type
+    FROM system.information_schema.tables t
+    LEFT JOIN system.information_schema.views v
+      ON  t.table_catalog = v.table_catalog
+      AND t.table_schema  = v.table_schema
+      AND t.table_name    = v.table_name
+    WHERE table_catalog NOT IN ('system','samples')
+""")
+
+
+
+
 # Cell 1 – Configuration
 dbutils.widgets.text("primary_catalog_prefix", "prod_", "Primary catalog prefix")
 dbutils.widgets.text("dr_catalog_prefix",     "dr_",   "DR catalog prefix")
