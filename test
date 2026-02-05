@@ -1,3 +1,28 @@
+-- Step 1: Create the new external table (empty) with LOCATION
+-- Replace placeholders with your values
+CREATE TABLE my_catalog.my_schema.new_external_sales
+USING DELTA
+LOCATION 's3://your-company-bucket/curated/sales/daily/'          -- must be covered by an external location
+TBLPROPERTIES (
+  'delta.enableChangeDataFeed' = 'true',                          -- optional
+  'delta.autoOptimize.optimizeWrite' = 'true'
+);
+
+-- Step 2: Copy all data + schema from managed table
+INSERT INTO my_catalog.my_schema.new_external_sales
+SELECT * FROM my_catalog.my_schema.old_managed_sales;
+
+-- Alternative one-liner (CTAS = CREATE TABLE AS SELECT)
+CREATE TABLE my_catalog.my_schema.new_external_sales
+USING DELTA
+LOCATION 's3://your-company-bucket/curated/sales/daily/'
+TBLPROPERTIES ('delta.enableChangeDataFeed' = 'true')
+AS SELECT * FROM my_catalog.my_schema.old_managed_sales;
+
+
+
+-----------
+
 df_tables = spark.sql("""
     SELECT 
       table_catalog        AS catalog_name,
