@@ -1,22 +1,210 @@
-explode(from_json(request_params.changes, 'array<struct<principal:string,add:array<string>,remove:array<string>>>')) AS exploded
+# Cell 1 – Configuration
+dbutils.widgets.text("primary_catalog_prefix", "prod_", "Primary catalog prefix")
+dbutils.widgets.text("dr_catalog_prefix",     "dr_",   "DR catalog prefix")
+dbutils.widgets.text("compare_level",         "table", "Compare level: catalog / schema / table / column")
+
+primary_prefix = dbutils.widgets.get("primary_catalog_prefix")
+dr_prefix      = dbutils.widgets.get("dr_catalog_prefix")
+level          = dbutils.widgets.get("compare_level").lower()
+
+print(f"Comparing catalogs starting with '{primary_prefix}' vs '{dr_prefix}'")
+
+
+-- Cell 2 – Helper: show all catalogs (run in both regions to verify names)
+SHOW CATALOGS;
+
+
+# Cell 3 – Collect metadata from INFORMATION_SCHEMA (DR region)
+
+from pyspark.sql.functions import col, concat_ws, lower
+
+def get_uc_inventory(level_filter="table"):
+    if level_filter == "catalog":
+        df = spark.sql("SELECT catalog_name FROM system.information_schema.catalogs")
+        df = df.withColumn("key", col("catalog_name"))
+        
+    elif level_filter == "schema":
+        df = spark.sql("""
+            SELECT 
+              catalog_name,
+              schema_name
+            FROM system.information_schema.schemata
+            WHERE catalog_name NOT IN ('system','samples')
+        """)
+        df = df.withColumn("key", concat_ws(".", col("catalog_name"), col("schema_name")))
+        
+    else:  # table + column level
+        df_tables = spark.sql("""
+            SELECT 
+              table_catalog        AS catalog_name,
+              table_schema         AS schema_name,
+              table_name,
+              table_type,
+              is_insertable_into,
+              created
+            FROM system.information_schema.tables
+            WHERE table_catalog NOT IN ('system','samples')
+              AND table_type NOT IN ('VIEW')          -- optional: include/exclude views
+        """)
+        
+        df_columns = spark.sql("""
+            SELECT 
+              table_catalog        AS catalog_name,
+              table_schema         AS schema_name,
+              table_name,
+              column_name,
+              ordinal_position,
+              lower(data_type)     AS data_type_lower,
+              is_nullable
+            FROM system.information_schema.columns
+            WHERE table_catalog NOT IN ('system','samples')
+        """)
+        
+        if level_filter == "column":
+            df = df_columns.withColumn(
+                "key", 
+                concat_ws(".", 
+                          col("catalog_name"), 
+                          col("schema_name"), 
+                          col("table_name"), 
+                          col("column_name"))
+            ).select(
+                "key", "catalog_name", "schema_name", "table_name", 
+                "column_name", "data_type_lower", "is_nullable", "ordinal_position"
+            )
+        else:  # table level
+            df = df_tables.join(
+                df_columns.groupBy("catalog_name","schema_name","table_name")
+                          .agg(concat_ws("||", 
+                                         collect_list(concat_ws(":", 
+                                                                col("column_name"), 
+                                                                col("data_type_lower"))).alias("col_sig"))
+            ).withColumn("key", concat_ws(".", 
+                                         col("catalog_name"), 
+                                         col("schema_name"), 
+                                         col("table_name"))
+            ).select("key", "catalog_name", "schema_name", "table_name", 
+                     "table_type", "col_sig")
+    
+    return df
+
+# Get DR inventory
+dr_inventory = get_uc_inventory(level)
+dr_inventory.createOrReplaceTempView("dr_inventory")
+display(dr_inventory.limit(20))
+
+
+# Cell 4 – Load primary inventory 
+#   → Assumption: you previously exported it from primary region 
+#     and saved it as Delta table or CSV in location accessible from DR
+
+primary_path = "s3a://your-company-dr-bucket/uc-inventory/primary_metadata.parquet"   # ← change
+
+primary_inventory = spark.read.format("delta").load(primary_path)   # or .csv(...)
+primary_inventory.createOrReplaceTempView("primary_inventory")
+display(primary_inventory.limit(20))
+
+
+# Cell 5 – Compare
+
+from pyspark.sql.functions import coalesce, lit
+
+comparison = primary_inventory.alias("p").join(
+    dr_inventory.alias("d"),
+    "key",
+    "full_outer"
+).select(
+    coalesce(col("p.key"), col("d.key")).alias("object_key"),
+    col("p.catalog_name").alias("primary_catalog"),
+    col("d.catalog_name").alias("dr_catalog"),
+    col("p.schema_name").alias("primary_schema"),
+    col("d.schema_name").alias("dr_schema"),
+    
+    # for table level
+    col("p.table_name").alias("primary_table"),
+    col("d.table_name").alias("dr_table"),
+    col("p.table_type").alias("primary_table_type"),
+    col("d.table_type").alias("dr_table_type"),
+    col("p.col_sig").alias("primary_column_sig"),
+    col("d.col_sig").alias("dr_column_sig"),
+    
+    # for column level (if chosen)
+    col("p.column_name").alias("primary_col"),
+    col("d.column_name").alias("dr_col"),
+    col("p.data_type_lower").alias("primary_dtype"),
+    col("d.data_type_lower").alias("dr_dtype"),
+    
+    # difference flags
+    (col("p.key").isNull()).alias("missing_in_primary"),
+    (col("d.key").isNull()).alias("missing_in_dr"),
+    (col("p.col_sig") != col("d.col_sig")).alias("column_signature_mismatch"),
+    (lower(col("p.data_type_lower")) != lower(col("d.data_type_lower"))).alias("type_mismatch")
+)
+
+# Show differences
+diffs = comparison.filter(
+    col("missing_in_primary") | 
+    col("missing_in_dr") | 
+    col("column_signature_mismatch") |
+    col("type_mismatch")
+)
+
+print(f"Total objects in primary : {primary_inventory.count()}")
+print(f"Total objects in DR      : {dr_inventory.count()}")
+print(f"Differences found        : {diffs.count()}")
+
+display(diffs.orderBy("object_key"))
 
 
 
-SELECT 
-  event_time,
-  user_identity.email AS changed_by,
-  request_params.securable_full_name AS object_affected,
-  request_params.securable_type AS object_type,
-  c.principal AS affected_principal,
-  c.add AS granted_privileges,
-  c.remove AS revoked_privileges
-FROM system.access.audit
-LATERAL VIEW explode(request_params.changes) AS c   -- ← 'c' is the alias for each exploded row (struct)
-WHERE service_name = 'unityCatalog'
-  AND action_name = 'updatePermissions'
-  AND request_params.changes IS NOT NULL
-  AND event_time >= current_timestamp() - INTERVAL 7 DAY
-ORDER BY event_time DESC;
+
+# Cell 6 – Optional: Summary stats per catalog/schema
+
+summary = comparison.groupBy(
+    coalesce(col("primary_catalog"), col("dr_catalog")).alias("catalog")
+).agg(
+    count("*").alias("total_compared"),
+    sum(when(col("missing_in_dr"),1).otherwise(0)).alias("missing_in_dr"),
+    sum(when(col("missing_in_primary"),1).otherwise(0)).alias("missing_in_primary"),
+    sum(when(col("column_signature_mismatch"),1).otherwise(0)).alias("sig_mismatch"),
+    sum(when(col("type_mismatch"),1).otherwise(0)).alias("type_mismatch")
+)
+
+display(summary)
+
+
+
+# Run in PRIMARY region notebook
+primary_inventory = get_uc_inventory("table")   # or "column"
+primary_inventory.write.mode("overwrite").format("delta").save("s3a://your-company-dr-bucket/uc-inventory/primary_metadata.parquet")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
