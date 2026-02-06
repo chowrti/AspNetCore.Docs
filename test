@@ -1,3 +1,128 @@
+# Cell: Configuration
+dbutils.widgets.text("catalog_prefixes", "prod_sales, prod_finance, prod_hr", "Catalog prefixes (comma-separated)")
+dbutils.widgets.text("compare_level", "table", "Compare level: catalog / schema / table / column")
+
+raw_input = dbutils.widgets.get("catalog_prefixes").strip()
+prefix_list = [p.strip() for p in raw_input.split(",") if p.strip()]
+
+if not prefix_list:
+    raise ValueError("No catalog prefixes provided")
+
+print("Detected prefixes:", prefix_list)
+
+
+
+
+# Updated get_uc_inventory function
+def get_uc_inventory(level_filter="table", prefixes=None):
+    """
+    prefixes: list of strings like ['prod_sales', 'prod_finance']
+    """
+    exclude_catalogs = "'system','samples'"
+
+    if prefixes:
+        # Build LIKE conditions:  catalog_name LIKE 'prod_sales%' OR catalog_name LIKE 'prod_finance%' ...
+        like_conditions = " OR ".join(
+            f"catalog_name LIKE '{p.replace('\'', '\'\'')}%'" 
+            for p in prefixes
+        )
+        catalog_filter = f" AND ({like_conditions})"
+    else:
+        catalog_filter = ""
+
+    # ────────────────────────────────────────────────
+    # catalog level
+    # ────────────────────────────────────────────────
+    if level_filter == "catalog":
+        query = f"""
+            SELECT catalog_name
+            FROM system.information_schema.catalogs
+            WHERE catalog_name NOT IN ({exclude_catalogs})
+            {catalog_filter}
+        """
+        df = spark.sql(query)
+        df = df.withColumn("key", col("catalog_name"))
+
+    # ────────────────────────────────────────────────
+    # schema level
+    # ────────────────────────────────────────────────
+    elif level_filter == "schema":
+        query = f"""
+            SELECT 
+              catalog_name,
+              schema_name
+            FROM system.information_schema.schemata
+            WHERE catalog_name NOT IN ({exclude_catalogs})
+            {catalog_filter}
+        """
+        df = spark.sql(query)
+        df = df.withColumn("key", concat_ws(".", col("catalog_name"), col("schema_name")))
+
+    # ────────────────────────────────────────────────
+    # table / column level
+    # ────────────────────────────────────────────────
+    else:
+        tables_query = f"""
+            SELECT 
+              t.table_catalog        AS catalog_name,
+              t.table_schema         AS schema_name,
+              t.table_name,
+              t.is_insertable_into,
+              t.table_owner,
+              CASE WHEN v.table_name IS NOT NULL THEN 'VIEW' ELSE 'TABLE' END AS object_type
+            FROM system.information_schema.tables t
+            LEFT JOIN system.information_schema.views v
+              ON t.table_catalog = v.table_catalog
+              AND t.table_schema  = v.table_schema
+              AND t.table_name    = v.table_name
+            WHERE t.table_catalog NOT IN ({exclude_catalogs})
+            {catalog_filter}
+        """
+
+        df_tables = spark.sql(tables_query)
+
+        columns_query = f"""
+            SELECT 
+              table_catalog        AS catalog_name,
+              table_schema         AS schema_name,
+              table_name,
+              column_name,
+              ordinal_position,
+              lower(data_type)     AS data_type_lower,
+              is_nullable
+            FROM system.information_schema.columns
+            WHERE table_catalog NOT IN ({exclude_catalogs})
+            {catalog_filter}
+        """
+
+        df_columns = spark.sql(columns_query)
+
+        if level_filter == "column":
+            df = df_columns.withColumn(
+                "key", 
+                concat_ws(".", col("catalog_name"), col("schema_name"), col("table_name"), col("column_name"))
+            ).select("key", "catalog_name", "schema_name", "table_name", "column_name", "data_type_lower", "is_nullable", "ordinal_position")
+        else:
+            df = df_tables.join(
+                df_columns.groupBy("catalog_name", "schema_name", "table_name")
+                          .agg(concat_ws("||", collect_list(concat_ws(":", col("column_name"), col("data_type_lower")))).alias("col_sig")),
+                ["catalog_name", "schema_name", "table_name"], "left"
+            ).withColumn("key", concat_ws(".", col("catalog_name"), col("schema_name"), col("table_name"))
+            ).select("key", "catalog_name", "schema_name", "table_name", "object_type", "col_sig", "is_insertable_into", "table_owner")
+
+    return df.cache()
+
+
+
+if prefixes:
+    quoted = ", ".join(f"'{p.replace('\'', '\'\'')}'" for p in prefixes)
+    catalog_filter = f" AND catalog_name IN ({quoted})"
+
+
+
+
+----------------
+
 from pyspark.sql.functions import coalesce, col, count, sum, when
 
 # Add the coalesced column first (or just use it inline)
