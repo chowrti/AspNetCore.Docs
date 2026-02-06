@@ -1,3 +1,22 @@
+# Widget input example: "sales_prod,finance_prod,hr_prod"
+raw_input = dbutils.widgets.get("catalog_names").strip()   # better name for widget
+catalog_list = [c.strip() for c in raw_input.split(",") if c.strip()]
+
+if not catalog_list:
+    raise ValueError("No catalog names provided")
+
+print("Filtering exact catalogs:", catalog_list)
+
+# Build IN clause
+if catalog_list:
+    quoted = ", ".join(f"'{c.replace('\'', '\'\'')}'" for c in catalog_list)
+    catalog_filter = f" AND catalog_name IN ({quoted})"
+else:
+    catalog_filter = ""
+
+-------------
+
+
 # Cell: Configuration
 dbutils.widgets.text("catalog_prefixes", "prod_sales, prod_finance, prod_hr", "Catalog prefixes (comma-separated)")
 dbutils.widgets.text("compare_level", "table", "Compare level: catalog / schema / table / column")
