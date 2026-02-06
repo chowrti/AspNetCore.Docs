@@ -1,3 +1,9 @@
+SELECT * FROM OPENQUERY(DATABRICKS, 'SELECT CURRENT_CATALOG() AS default_catalog');
+
+
+
+-------
+
 # Widget input example: "sales_prod,finance_prod,hr_prod"
 raw_input = dbutils.widgets.get("catalog_names").strip()   # better name for widget
 catalog_list = [c.strip() for c in raw_input.split(",") if c.strip()]
