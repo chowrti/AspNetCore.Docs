@@ -1,34 +1,50 @@
 # Databricks notebook source
 # COMMAND ----------
 
-# SAMPLE: Unity Catalog → Azure SQL DB using Azure Key Vault secrets
+# SAMPLE: Unity Catalog → Azure SQL Managed Instance (using Azure Key Vault secrets)
 
-# ─── CONFIG / WIDGETS (for reuse & parameterization) ──────────────
-dbutils.widgets.text("catalog_table",  "main.default.orders_bronze")
-dbutils.widgets.text("target_sql_table", "dbo.stg_orders")
-dbutils.widgets.text("secret_scope",     "sql-creds-kv")           # ← your scope name
+# ─── 1. Read from Unity Catalog ────────────────────────────────────────
 
-catalog_table   = dbutils.widgets.get("catalog_table")
-target_table    = dbutils.widgets.get("target_sql_table")
-scope           = dbutils.widgets.get("secret_scope")
+source_table = "main.default.my_source_table"          # ← change this
+# or: source_table = dbutils.widgets.get("source_table")
 
-# ─── 1. Get credentials from Azure Key Vault ──────────────────────
-try:
-    username = dbutils.secrets.get(scope=scope, key="sql-username")
-    password = dbutils.secrets.get(scope=scope, key="sql-password")
-except Exception as e:
-    print(f"Error reading secrets from scope '{scope}': {str(e)}")
-    raise e
+df = spark.read.table(source_table)
 
-print("Credentials retrieved from Key Vault successfully (length check: user={}, pwd={})"
-      .format(len(username), len(password)))
+print(f"Read {df.count():,} rows from {source_table}")
+# display(df.limit(5))   # optional
 
-# ─── 2. JDBC connection settings ─────────────────────────────────
+# ─── Optional light transform ──────────────────────────────────────────
+# df = df.filter("year >= 2024").drop("temp_column")
 
-jdbc_hostname = "yourserver.database.windows.net"          # ← change
+# ─── 2. Azure Key Vault backed secrets ─────────────────────────────────
+
+# You must already have created a Key Vault-backed secret scope
+# Example creation (one-time, outside notebook):
+#   databricks secrets create-scope --scope my-company-kv-scope \
+#     --keyvault-uri https://mycompanyvault.vault.azure.net/ \
+#     --resource-id /subscriptions/.../providers/Microsoft.KeyVault/vaults/mycompanyvault
+
+scope_name = "my-company-kv-scope"                     # ← your secret scope name
+
+kv_username_key = "sql-mi-admin-user"                  # ← secret name in Key Vault
+kv_password_key = "sql-mi-admin-password"              # ← secret name in Key Vault
+
+jdbc_user     = dbutils.secrets.get(scope=scope_name, key=kv_username_key)
+jdbc_password = dbutils.secrets.get(scope=scope_name, key=kv_password_key)
+
+# ─── 3. Azure SQL Managed Instance connection settings ─────────────────
+
+# ────────────────────── IMPORTANT ──────────────────────
+# Get the correct hostname from Azure portal → SQL managed instance → Overview / Connection strings
+# Public endpoint usually looks like:   yourinstance.public.abc123.database.windows.net
+# Private endpoint:                     yourinstance.privatelink.database.windows.net  (VNet injected)
+
+jdbc_hostname = "yourinstance.public.abc123.database.windows.net"   # ← CHANGE
 jdbc_port     = 1433
-jdbc_database = "YourDatabaseName"                          # ← change
+jdbc_database = "TargetDatabase"                                    # ← CHANGE
+jdbc_table    = "dbo.TargetTable"                                   # schema.table – CHANGE
 
+# JDBC URL – standard for SQL MI with encryption
 jdbc_url = (
     f"jdbc:sqlserver://{jdbc_hostname}:{jdbc_port};"
     f"database={jdbc_database};"
@@ -39,56 +55,40 @@ jdbc_url = (
 )
 
 connection_properties = {
-    "user": username,
-    "password": password,
-    "driver": "com.microsoft.sqlserver.jdbc.SQLServerDriver",
-    # Optional but recommended for Azure SQL
-    "encrypt": "true",
+    "user"                  : jdbc_user,
+    "password"              : jdbc_password,
+    "driver"                : "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+    "encrypt"               : "true",
     "trustServerCertificate": "false",
-    "hostNameInCertificate": "*.database.windows.net",
-    "loginTimeout": "30"
+    "hostNameInCertificate" : "*.database.windows.net",
+    "loginTimeout"          : "30"
 }
 
-# ─── 3. Read from Unity Catalog ──────────────────────────────────
+# ─── 4. Write settings ─────────────────────────────────────────────────
 
-df = spark.read.table(catalog_table)
+write_mode = "append"           # "overwrite" | "append" | "errorifexists" | "ignore"
 
-print(f"Read {df.count():,} rows from {catalog_table}")
-# display(df.limit(5))   # uncomment to preview
+write_options = {
+    "batchsize"     : "20000",           # tune depending on data volume & executor memory
+    "isolationLevel": "READ_COMMITTED"   # or SERIALIZABLE / READ_UNCOMMITTED
+}
 
-# Optional – repartition for large writes
-# df = df.repartition(24)
+# ─── 5. Execute write ──────────────────────────────────────────────────
 
-# ─── 4. Write to Azure SQL Database ──────────────────────────────
+df.write \
+    .jdbc(
+        url=jdbc_url,
+        table=jdbc_table,
+        mode=write_mode,
+        properties={**connection_properties, **write_options}
+    )
 
-write_mode = "append"           # "overwrite" | "append" | "errorifexists"
+print(f"Write completed → {jdbc_table} ({write_mode} mode)")
 
-try:
-    df.write \
-        .jdbc(
-            url=jdbc_url,
-            table=target_table,
-            mode=write_mode,
-            properties=connection_properties
-        )
-    print(f"Write succeeded → {target_table}  (mode: {write_mode})")
-except Exception as e:
-    print(f"Write failed: {str(e)}")
-    raise e
-
-# Optional: tune batch size / isolation (add to .write if needed)
-# .option("batchsize", "20000") \
-# .option("isolationLevel", "READ_UNCOMMITTED") \
-
-# COMMAND ----------
-
-# Optional – quick verification read-back (small sample)
-# verification_df = spark.read \
-#     .jdbc(url=jdbc_url, table=f"(SELECT TOP 10 * FROM {target_table}) AS t", 
-#           properties=connection_properties)
-# display(verification_df)
-
-
+# ─── Optional: repartition for better parallelism ──────────────────────
+# Large tables: repartition before write
+# df = df.repartition(24)   # adjust based on cluster size
+# then .write.jdbc(...)
 
 
 
