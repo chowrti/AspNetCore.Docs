@@ -1,3 +1,98 @@
+# Databricks notebook source
+# COMMAND ----------
+
+# SAMPLE: Unity Catalog → Azure SQL DB using Azure Key Vault secrets
+
+# ─── CONFIG / WIDGETS (for reuse & parameterization) ──────────────
+dbutils.widgets.text("catalog_table",  "main.default.orders_bronze")
+dbutils.widgets.text("target_sql_table", "dbo.stg_orders")
+dbutils.widgets.text("secret_scope",     "sql-creds-kv")           # ← your scope name
+
+catalog_table   = dbutils.widgets.get("catalog_table")
+target_table    = dbutils.widgets.get("target_sql_table")
+scope           = dbutils.widgets.get("secret_scope")
+
+# ─── 1. Get credentials from Azure Key Vault ──────────────────────
+try:
+    username = dbutils.secrets.get(scope=scope, key="sql-username")
+    password = dbutils.secrets.get(scope=scope, key="sql-password")
+except Exception as e:
+    print(f"Error reading secrets from scope '{scope}': {str(e)}")
+    raise e
+
+print("Credentials retrieved from Key Vault successfully (length check: user={}, pwd={})"
+      .format(len(username), len(password)))
+
+# ─── 2. JDBC connection settings ─────────────────────────────────
+
+jdbc_hostname = "yourserver.database.windows.net"          # ← change
+jdbc_port     = 1433
+jdbc_database = "YourDatabaseName"                          # ← change
+
+jdbc_url = (
+    f"jdbc:sqlserver://{jdbc_hostname}:{jdbc_port};"
+    f"database={jdbc_database};"
+    "encrypt=true;"
+    "trustServerCertificate=false;"
+    "hostNameInCertificate=*.database.windows.net;"
+    "loginTimeout=30;"
+)
+
+connection_properties = {
+    "user": username,
+    "password": password,
+    "driver": "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+    # Optional but recommended for Azure SQL
+    "encrypt": "true",
+    "trustServerCertificate": "false",
+    "hostNameInCertificate": "*.database.windows.net",
+    "loginTimeout": "30"
+}
+
+# ─── 3. Read from Unity Catalog ──────────────────────────────────
+
+df = spark.read.table(catalog_table)
+
+print(f"Read {df.count():,} rows from {catalog_table}")
+# display(df.limit(5))   # uncomment to preview
+
+# Optional – repartition for large writes
+# df = df.repartition(24)
+
+# ─── 4. Write to Azure SQL Database ──────────────────────────────
+
+write_mode = "append"           # "overwrite" | "append" | "errorifexists"
+
+try:
+    df.write \
+        .jdbc(
+            url=jdbc_url,
+            table=target_table,
+            mode=write_mode,
+            properties=connection_properties
+        )
+    print(f"Write succeeded → {target_table}  (mode: {write_mode})")
+except Exception as e:
+    print(f"Write failed: {str(e)}")
+    raise e
+
+# Optional: tune batch size / isolation (add to .write if needed)
+# .option("batchsize", "20000") \
+# .option("isolationLevel", "READ_UNCOMMITTED") \
+
+# COMMAND ----------
+
+# Optional – quick verification read-back (small sample)
+# verification_df = spark.read \
+#     .jdbc(url=jdbc_url, table=f"(SELECT TOP 10 * FROM {target_table}) AS t", 
+#           properties=connection_properties)
+# display(verification_df)
+
+
+
+
+
+----------
 # Read the table (works for Delta tables, Unity Catalog tables, etc.)
 df = spark.read.table("catalog.schema.table_name")
 # or: df = spark.table("catalog.schema.table_name")
