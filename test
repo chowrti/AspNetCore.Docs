@@ -1,3 +1,25 @@
+import requests
+
+token = dbutils.secrets.get(scope="your-scope", key="databricks-token")   # or use notebook context
+host = spark.conf.get("spark.databricks.workspaceUrl")   # or hardcode https://<your-workspace>.cloud.databricks.com
+
+headers = {"Authorization": f"Bearer {token}"}
+payload = {"cluster_id": cluster_id}
+
+r = requests.post(f"{host}/api/2.0/clusters/restart", json=payload, headers=headers)
+
+if r.status_code != 200:
+    print("Error:", r.status_code, r.text)
+    # 403 → permission denied
+    # 400/404 → wrong cluster_id
+else:
+    print("Restart accepted")
+
+
+
+--------
+
+
 # Databricks notebook source
 # COMMAND ----------
 
