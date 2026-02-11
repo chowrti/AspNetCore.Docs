@@ -1,3 +1,35 @@
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.clusters import ClusterState
+import time
+from datetime import datetime
+
+w = WorkspaceClient()  # ← no args = uses job's identity automatically
+
+cluster_id = dbutils.widgets.get("cluster_id") or "your-cluster-id-here"
+
+print(f"Restarting cluster {cluster_id} as {datetime.now()}")
+
+w.clusters.restart(cluster_id=cluster_id)
+
+# Optional wait loop (as before)
+start = time.time()
+while True:
+    state = w.clusters.get(cluster_id=cluster_id).state
+    print(f"State: {state}")
+    if state == ClusterState.RUNNING:
+        print("Restart complete ✓")
+        break
+    if state in [ClusterState.TERMINATED, ClusterState.ERROR]:
+        raise RuntimeError(f"Failed: {state}")
+    if time.time() - start > 20*60:
+        print("Timeout")
+        break
+    time.sleep(30)
+
+
+
+------------
+
 import requests
 
 token = dbutils.secrets.get(scope="your-scope", key="databricks-token")   # or use notebook context
