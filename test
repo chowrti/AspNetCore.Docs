@@ -1,6 +1,78 @@
 # Databricks notebook source
 # COMMAND ----------
 
+dbutils.widgets.text("cluster_id", "", "Cluster ID to restart")
+dbutils.widgets.dropdown("wait_for_restart", "true", ["true", "false"], "Wait until cluster is running again?")
+
+# COMMAND ----------
+
+cluster_id = dbutils.widgets.get("cluster_id").strip()
+wait_for_restart = dbutils.widgets.get("wait_for_restart").lower() == "true"
+
+if not cluster_id:
+    raise ValueError("Parameter 'cluster_id' is required. You must pass the cluster ID.")
+
+print(f"Target cluster to restart: {cluster_id}")
+
+# COMMAND ----------
+
+import time
+from datetime import datetime
+
+print(f"Restart initiated — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+# Restart the cluster
+dbutils.api("2.0").clusters.restart(cluster_id)
+
+print("Restart command sent.")
+
+# COMMAND ----------
+
+if not wait_for_restart:
+    print("Not waiting for cluster to come back online (as requested).")
+    dbutils.notebook.exit("Restart command sent — wait disabled")
+
+# COMMAND ----------
+
+MAX_WAIT_MINUTES = 18
+POLL_INTERVAL_SEC = 30
+
+print(f"Waiting for cluster to reach RUNNING state (max {MAX_WAIT_MINUTES} min)...")
+
+start = time.time()
+
+while True:
+    state = dbutils.api("2.0").clusters.get(cluster_id)["state"]
+    
+    print(f"  {datetime.now().strftime('%H:%M:%S')} → state = {state}")
+    
+    if state == "RUNNING":
+        print("Cluster is RUNNING again ✓")
+        break
+        
+    if state in ["TERMINATED", "ERROR", "UNKNOWN"]:
+        raise Exception(f"Cluster entered terminal state: {state}")
+    
+    if (time.time() - start) > (MAX_WAIT_MINUTES * 60):
+        print("Timeout reached — cluster did not start within time limit.")
+        break
+        
+    time.sleep(POLL_INTERVAL_SEC)
+
+print("Restart & wait procedure completed.")
+
+
+
+
+
+
+
+
+------------
+
+# Databricks notebook source
+# COMMAND ----------
+
 # SAMPLE: Unity Catalog → Azure SQL Managed Instance (using Azure Key Vault secrets)
 
 # ─── 1. Read from Unity Catalog ────────────────────────────────────────
