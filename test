@@ -1,4 +1,14 @@
 from databricks.sdk import WorkspaceClient
+w = WorkspaceClient()
+sp = w.service_principals.get(id="your-sp-internal-id")
+print(sp.display_name)
+
+
+
+---
+
+
+from databricks.sdk import WorkspaceClient
 
 w = WorkspaceClient()   # automatically uses the current notebook's authentication context
 
