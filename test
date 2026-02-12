@@ -1,3 +1,41 @@
+from azure.identity import DefaultAzureCredential
+import requests
+
+# Acquire token using managed identity (works automatically on cluster with MSI enabled)
+credential = DefaultAzureCredential()
+token = credential.get_token("https://graph.microsoft.com/.default").token
+
+
+
+
+object_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"  # the SP object ID you have
+
+url = f"https://graph.microsoft.com/v1.0/servicePrincipals/{object_id}"
+# Or minimal version: f"https://graph.microsoft.com/v1.0/servicePrincipals/{object_id}?$select=displayName,id,appId"
+
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Content-Type": "application/json"
+}
+
+response = requests.get(url, headers=headers)
+
+if response.status_code == 200:
+    sp_data = response.json()
+    display_name = sp_data.get("displayName", "Not found")
+    app_id = sp_data.get("appId")
+    print(f"Service Principal Name: {display_name}")
+    print(f"Application (Client) ID: {app_id}")
+    print(sp_data)  # full object
+else:
+    print(f"Error {response.status_code}: {response.text}")
+
+
+
+--
+
+
+
 import json
 from databricks.sdk import WorkspaceClient
 
