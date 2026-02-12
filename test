@@ -1,4 +1,51 @@
 from databricks.sdk import WorkspaceClient
+
+w = WorkspaceClient()   # automatically uses the current notebook's authentication context
+
+# Replace with your service principal ID (UUID string)
+sp_id = "12345678-1234-1234-1234-1234567890ab"
+
+sp = w.service_principals.get(id=sp_id)
+
+print(f"Display name: {sp.display_name}")
+print(f"Application ID: {sp.application_id}")
+print(f"Active: {sp.active}")
+print(f"Full object:\n{sp}")
+
+
+
+import requests
+import json
+
+sp_id = "your-sp-id-here"          # ← replace
+
+workspace_url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
+token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
+
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Content-Type": "application/json"
+}
+
+url = f"{workspace_url}/api/2.0/preview/scim/v2/ServicePrincipals/{sp_id}"
+
+response = requests.get(url, headers=headers)
+
+if response.status_code == 200:
+    sp_data = response.json()
+    print("Service Principal Name / Display Name:", sp_data.get("displayName"))
+    print("Application ID:", sp_data.get("applicationId"))
+    print(json.dumps(sp_data, indent=2))
+else:
+    print(f"Error {response.status_code}: {response.text}")
+
+
+
+
+--------
+
+
+from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.clusters import ClusterState
 import time
 from datetime import datetime
