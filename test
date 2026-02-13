@@ -1,42 +1,31 @@
 import java.sql.DriverManager
-import java.util.Properties
 
-// ────────────────────────────────────────────────
-// Replace these values
-val serverHostname = "abc-123.cloud.databricks.com"           // from Connection details
-val httpPath       = "/sql/1.0/warehouses/abc1234567890def"   // from Connection details
-val token          = dbutils.secrets.get(scope = "my-scope", key = "databricks-token")   // ← best practice
-// or hard-code for quick test: val token = "dapi1234..."
+// Get these from your SQL Warehouse → Connection details tab
+val host = "your-workspace.cloud.databricks.com"           // e.g. abc-1234.cloud.databricks.com
+val httpPath = "/sql/1.0/warehouses/0123456789abcdef"     // full httpPath
+val token = dbutils.secrets.get(scope = "your-scope", key = "databricks-pat")  // or "dapi..." for testing
 
-val jdbcUrl = s"jdbc:databricks://$serverHostname:443;httpPath=$httpPath;AuthMech=3;UID=token;PWD=$token"
+// Modern format — MUST start with jdbc:databricks://
+val jdbcUrl = s"jdbc:databricks://$host:443;httpPath=$httpPath;AuthMech=3;UID=token;PWD=$token"
 
-// Optional: you can add ;SSL=1 but it's usually not needed anymore
+// No need for transportMode=http; ssl=1 anymore — modern driver defaults handle HTTPS
 
 try {
-  Class.forName("com.databricks.client.jdbc.Driver")   // usually auto-loaded, but safe to call
+  // Optional but safe
+  Class.forName("com.databricks.client.jdbc.Driver")
   
-  val props = new Properties()
-  // props.put("user", "token")        // alternative way (less common now)
-  // props.put("password", token)
+  val conn = DriverManager.getConnection(jdbcUrl)
+  println("Connection SUCCESS!")
   
-  val conn = DriverManager.getConnection(jdbcUrl)   // ← main test line
-  
-  println("JDBC connection SUCCESS!")
-  
-  // Optional: run a tiny test query
+  // Quick test query
   val stmt = conn.createStatement()
   val rs = stmt.executeQuery("SELECT CURRENT_DATE() AS today")
-  if (rs.next()) {
-    println("Test query worked → Today is: " + rs.getString("today"))
-  }
+  if (rs.next()) println("Today: " + rs.getString(1))
   
-  rs.close()
-  stmt.close()
-  conn.close()
-  
+  rs.close(); stmt.close(); conn.close()
 } catch {
-  case e: Exception =>
-    println("JDBC connection FAILED")
+  case e: Throwable =>
+    println("Connection FAILED:")
     e.printStackTrace()
 }
 
