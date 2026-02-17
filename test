@@ -58,6 +58,21 @@ finally {
 
 -------
 
+Install on the cluster (for all notebooks/jobs on that cluster)
+Go to your cluster → Libraries tab
+Click "Install New" → PyPI → enter azure-identity → Install
+This persists across notebook restarts / job runs on the same cluster.
+
+In Azure Databricks, it should pick up the system-assigned managed identity of the cluster (if enabled).
+Cluster must have managed identity enabled:
+Go to cluster configuration → Advanced options → Azure → Managed identity section.
+Turn it on (system-assigned) or attach a user-assigned one.
+The identity must have the necessary Microsoft Graph permissions (e.g., Application.Read.All) and admin consent granted in Entra ID.
+
+
+%pip install azure-identity
+
+
 from azure.identity import DefaultAzureCredential
 import requests
 
