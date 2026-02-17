@@ -1,3 +1,16 @@
+Recommended: Install via Cluster Libraries (Persists for All Notebooks/Jobs on Cluster)
+
+Go to your cluster configuration → Libraries tab.
+Click Install New → Maven (easiest and auto-handles dependencies).
+In the "Coordinates" field, enter:textcom.databricks:databricks-jdbc:3.1.1(Check latest version on Maven Central — as of early 2026, 3.1.1 is recent; use 2.6.32 or similar if you need compatibility with older setups.)
+Install → restart the cluster.
+
+This adds the JAR to the full driver/executor classpath automatically — no code changes needed.
+
+
+
+------------
+
 # In East region notebook
 
 # ── Replace these ────────────────────────────────────────────────────────────
