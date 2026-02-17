@@ -1,3 +1,8 @@
+SELECT current_timestamp() AS current_datetime;
+
+
+--
+
 Recommended: Install via Cluster Libraries (Persists for All Notebooks/Jobs on Cluster)
 
 Go to your cluster configuration → Libraries tab.
