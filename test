@@ -1,3 +1,33 @@
+# In East region notebook
+
+# ── Replace these ────────────────────────────────────────────────────────────
+west_jdbc_url = "jdbc:databricks://<your-west-server-hostname>:443/default"  # from above
+http_path     = "/sql/1.0/warehouses/<your-warehouse-id>"
+pat           = dbutils.secrets.get("your-scope", "west-pat")   # ← use secrets!
+
+full_jdbc_url = f"{west_jdbc_url};transportMode=http;ssl=1;httpPath={http_path};AuthMech=3;UID=token;PWD={pat}"
+
+try:
+    # Test simple read from a system table (or any table you have access to in West)
+    df = spark.read \
+        .format("jdbc") \
+        .option("url", full_jdbc_url) \
+        .option("dbtable", "(SELECT current_version()) AS t") \
+        .option("driver", "com.databricks.client.jdbc.Driver") \
+        .load()
+
+    display(df)
+
+    print("Connection SUCCESS: East → West SQL Warehouse works!")
+
+except Exception as e:
+    print("Connection FAILED:")
+    print(str(e))
+
+
+
+---------
+
 # === Variables - fill these in ===
 $driverName       = "Simba Spark ODBC Driver"          # Or exact name from your ODBC drivers list
 $hostName         = "adb-1234567890123456.7.azuredatabricks.net"   # Your workspace host
