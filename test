@@ -1,3 +1,29 @@
+
+Workspace-Level Permissions
+Can Manage — Full control, including changing permissions and deleting.
+
+Unity Catalog Privileges
+MANAGE privilege — Allows granting/revoking privileges without full ownership.
+
+
+Main Privilege Types by Securable Object
+From official Databricks documentation (as of early 2026):
+
+Metastore (top-level): CREATE CATALOG, CREATE EXTERNAL LOCATION, CREATE STORAGE CREDENTIAL, CREATE SHARE, USE MARKETPLACE ASSETS, USE SHARE, etc.
+Catalog: ALL PRIVILEGES, USE CATALOG, BROWSE, CREATE SCHEMA, APPLY TAG, and inheritance for child objects (e.g., CREATE TABLE, USE SCHEMA).
+Default: All users typically have USE CATALOG on main/workspace catalogs.
+
+Schema: USE SCHEMA, CREATE TABLE, CREATE VOLUME, CREATE MODEL, CREATE FUNCTION, CREATE MATERIALIZED VIEW, and inheritance (e.g., SELECT, MODIFY on child tables).
+Table / View / Materialized View: SELECT (read), MODIFY (write/insert/update/delete), ALL PRIVILEGES.
+Volume (for files/unstructured data): READ VOLUME, WRITE VOLUME.
+Function / Model / Procedure: EXECUTE.
+
+
+
+
+
+----------
+
 SELECT current_timestamp() AS current_datetime;
 
 
