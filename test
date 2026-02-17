@@ -19,6 +19,10 @@ Volume (for files/unstructured data): READ VOLUME, WRITE VOLUME.
 Function / Model / Procedure: EXECUTE.
 
 
+Required RBAC role (Entra ID):
+Storage Blob Data Contributor — Sufficient for creating directories, uploading files, etc. (includes write on blobs/directories).
+
+
 
 
 
