@@ -1,3 +1,81 @@
+To achieve a generic JDBC URL for Databricks SQL Warehouses during cross-region disaster recovery (DR) testing or failover (e.g., from East US to West US), the core challenge is that both the workspace hostname (e.g., `adb-1234567890123456.7.azuredatabricks.net`) and the HTTP path (e.g., `/sql/1.0/warehouses/<warehouse-id>`) are region- and workspace-specific. Warehouse IDs are auto-generated UUIDs and will differ between primary (East) and secondary (West) workspaces, even if you replicate configurations identically.
+
+Databricks does not provide built-in automatic failover or URL abstraction for workspaces/SQL Warehouses across regions. By default, consumers like IBM DataStage (via JDBC/ODBC) or SQL Server VMs (using linked servers or DSN configurations) would require URL updates during failover, which defeats your goal of no client-side changes.
+
+The recommended approach is to front the Databricks endpoints with a cloud load balancer/CDN that provides a stable, generic URL. This routes traffic to the active region's workspace and handles path differences via dynamic rewriting/redirects. In Azure, use **Azure Front Door** (a global CDN/load balancer) for this, as it supports health-based routing, custom domains, and rule-based URL rewrites. This ensures clients use a fixed JDBC URL like `jdbc:databricks://stable-dr-endpoint.azurefd.net:443;httpPath=/generic-warehouse`.
+
+### Prerequisites
+- Two Azure Databricks workspaces: Primary in East US, secondary in West US.
+- Replicate data and assets:
+  - Data: Use Delta Deep Clone for tables, or Azure Data Factory/Storage replication for other assets.
+  - Configurations: Use Terraform (with the Databricks provider and Exporter tool) or DBSync to mirror notebooks, jobs, users/groups (via SCIM), ACLs, secrets, and SQL Warehouse configs.
+- SQL Warehouses: Create identical warehouses in both regions (same size, scaling, etc.), but note their unique IDs (e.g., primary: `abc123`, secondary: `def456`).
+- Authentication: Use OAuth (Entra ID service principal or user tokens) instead of PATs, as PATs are workspace-specific. Grant the identity `CAN USE` on warehouses in both regions.
+- Azure Front Door: Provision one in a global configuration (not region-bound).
+
+### Step-by-Step Setup for Generic JDBC URL
+1. **Provision Azure Front Door**:
+   - In the Azure portal, create a Front Door profile (Standard or Premium tier for rewrite rules).
+   - Add a custom domain (e.g., `stable-dr-endpoint.yourdomain.com`) with a TLS cert (use Azure-managed or upload your own).
+   - Create two origin groups (backends):
+     - Primary: Point to the East workspace hostname (e.g., `adb-primary.eastus.azuredatabricks.net`), port 443, HTTPS.
+     - Secondary: Point to the West workspace hostname (e.g., `adb-secondary.westus.azuredatabricks.net`), port 443, HTTPS.
+   - Set up health probes: Use path `/api/2.0/sql/warehouses` (or similar) to check if the backend is healthy.
+   - Default routing: Route all traffic to the primary origin group initially. Enable session affinity if needed for sticky connections.
+
+2. **Handle HTTP Path Differences with URL Rewrite Rules**:
+   - Warehouse IDs differ, so use Front Door's rules engine to dynamically rewrite the path.
+   - Store active mappings in Azure Key Vault or App Configuration (e.g., a secret with JSON: `{"active_host": "adb-primary.eastus.azuredatabricks.net", "active_warehouse_id": "abc123"}`).
+   - Create a rule set:
+     - Match on incoming path: `/generic-warehouse/*` (your generic path).
+     - Action: URL rewrite to `/sql/1.0/warehouses/{active_warehouse_id}{request_uri}` (use variables or integrate with Azure Functions for dynamic lookup from Key Vault).
+     - For more advanced dynamics, attach an Azure Function to the rule: The function queries Key Vault for the current active ID and rewrites the path (e.g., replace `/generic-warehouse` with `/sql/1.0/warehouses/abc123`).
+   - Route to the active origin based on health or manual switch.
+
+3. **Configure the Generic JDBC URL**:
+   - Use this format for all clients:
+     ```
+     jdbc:databricks://stable-dr-endpoint.yourdomain.com:443;httpPath=/generic-warehouse;transportMode=http;ssl=1;AuthMech=11;Auth_Flow=0;Auth_AccessToken=<oauth-token>
+     ```
+     - `stable-dr-endpoint.yourdomain.com`: Your Front Door custom domain (resolves to the active backend).
+     - `/generic-warehouse`: A placeholder path that Front Door rewrites to the actual `/sql/1.0/warehouses/<id>`.
+     - Add other properties as needed (e.g., for OAuth: Acquire token via MSAL or azure-identity, as in prior examples).
+   - For ODBC (e.g., in SQL Server linked servers or DSN):
+     - Driver: Databricks ODBC driver (download from Databricks).
+     - Server: `stable-dr-endpoint.yourdomain.com`
+     - Port: 443
+     - HTTP Path: `/generic-warehouse`
+     - Authentication: OAuth or token.
+
+4. **Integrate with Consumers**:
+   - **IBM DataStage**: Update JDBC stages to use the generic URL. Test connections.
+   - **SQL VM Linked Server**: In SSMS, create/modify the linked server with provider `MSDASQL` (for ODBC) or direct JDBC if using a bridge. Set server name to the generic hostname and path.
+   - **DSN**: Create system DSNs on VMs pointing to the generic URL.
+
+5. **Failover Process (for DR Event or Testing)**:
+   - Declare DR: Stop primary warehouse/jobs, stabilize data (e.g., flush streams).
+   - Update Front Door:
+     - Switch the default origin group to secondary (manual or via Azure CLI/PowerShell script).
+     - Update Key Vault with secondary details (e.g., `{"active_host": "adb-secondary.westus.azuredatabricks.net", "active_warehouse_id": "def456"}`).
+   - Rerun replication if needed (e.g., sync any delta changes).
+   - Test: Clients should connect seamlessly without config changes—the Front Door handles routing and path rewrite.
+   - Failback: Reverse the process after primary recovery.
+   - Automate: Use Azure Logic Apps or Functions to trigger failover based on alerts (e.g., from Azure Monitor on region outage).
+
+### Testing and Considerations
+- **DR Testing**: Simulate failover by manually switching Front Door origins. Run queries from DataStage/SQL VM to verify no downtime or config changes.
+- **Performance**: Front Door adds minimal latency (~50-100ms globally). Use caching rules if applicable (though JDBC traffic isn't cacheable).
+- **Costs**: Front Door charges per GB transferred + requests. Estimate with Azure Pricing Calculator.
+- **Security**: Enable WAF on Front Door. Ensure OAuth tokens have minimal scopes.
+- **Limitations**: If using PATs, generate new ones post-failover (but prefer OAuth). Complex queries might need tuning if latency increases.
+- **Reference Implementation**: For Terraform code and examples (adapt for Azure Front Door), see https://github.com/gregwood-db/dbx-stable-url.
+
+This setup ensures zero client changes during DR, with all logic handled centrally in Azure Front Door. If you encounter issues (e.g., with rewrite rules), share error details for refinement.
+
+
+
+------------
+
 
 Workspace-Level Permissions
 Can Manage — Full control, including changing permissions and deleting.
