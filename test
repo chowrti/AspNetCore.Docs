@@ -1,3 +1,13 @@
+curl -X POST https://<workspace-url>/oidc/v1/token \
+-d 'grant_type=client_credentials' \
+-d 'client_id=<your-sp-client-id>' \
+-d 'client_secret=<your-sp-client-secret-value>' \
+-d 'scope=all-apis'
+
+
+
+----------
+
 To achieve a generic JDBC URL for Databricks SQL Warehouses during cross-region disaster recovery (DR) testing or failover (e.g., from East US to West US), the core challenge is that both the workspace hostname (e.g., adb-1234567890123456.7.azuredatabricks.net) and the HTTP path (e.g., /sql/1.0/warehouses/<warehouse-id>) are region- and workspace-specific. Warehouse IDs are auto-generated UUIDs and will differ between primary (East) and secondary (West) workspaces, even if you replicate configurations identically.
 Databricks does not provide built-in automatic failover or URL abstraction for workspaces/SQL Warehouses across regions. By default, consumers like IBM DataStage (via JDBC/ODBC) or SQL Server VMs (using linked servers or DSN configurations) would require URL updates during failover, which defeats your goal of no client-side changes.
 The recommended approach is to front the Databricks endpoints with a cloud load balancer/CDN that provides a stable, generic URL. This routes traffic to the active region's workspace and handles path differences via dynamic rewriting/redirects. In Azure, use Azure Front Door (a global CDN/load balancer) for this, as it supports health-based routing, custom domains, and rule-based URL rewrites. This ensures clients use a fixed JDBC URL like jdbc:databricks://stable-dr-endpoint.azurefd.net:443;httpPath=/generic-warehouse.
