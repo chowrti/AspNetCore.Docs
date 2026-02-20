@@ -1,3 +1,92 @@
+from pyspark.sql.functions import col, concat_ws, lit
+
+# ──────────────────────────────────────────────
+# Option 1: All catalogs you have access to
+# ──────────────────────────────────────────────
+df_tables = spark.sql("""
+  SELECT 
+    table_catalog,
+    table_schema,
+    table_name,
+    table_type,
+    CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_name
+  FROM system.information_schema.tables
+  WHERE table_type IN ('MANAGED', 'EXTERNAL')    -- usually what you want
+    AND is_temporary = false
+  ORDER BY table_catalog, table_schema, table_name
+""")
+
+# ──────────────────────────────────────────────
+# Option 2: Only one specific catalog (recommended if you know it)
+# ──────────────────────────────────────────────
+# catalog_name = "main"          # ← change here
+# df_tables = spark.sql(f"""
+#   SELECT 
+#     '{catalog_name}' AS table_catalog,
+#     table_schema,
+#     table_name,
+#     table_type,
+#     CONCAT('{catalog_name}', '.', table_schema, '.', table_name) AS full_name
+#   FROM {catalog_name}.information_schema.tables
+#   WHERE table_type IN ('MANAGED', 'EXTERNAL')
+#     AND is_temporary = false
+# """)
+
+# Collect list (small enough for most orgs)
+tables_list = [row.full_name for row in df_tables.select("full_name").collect()]
+
+# Prepare result list
+results = []
+
+for full_table in tables_list:
+  try:
+    detail_df = spark.sql(f"DESCRIBE DETAIL `{full_table}`")
+    row = detail_df.collect()[0]
+    
+    results.append({
+      "catalog": row["database"].split(".")[0] if "." in row["database"] else row["database"],  # sometimes format varies
+      "schema": row["schema"] if "schema" in row else row["database"].split(".")[-1],
+      "table": row["name"].split(".")[-1],
+      "full_name": full_table,
+      "table_type": row["type"] if "type" in row else row["format"],
+      "format": row["format"],
+      "num_files": row["numFiles"] if row["numFiles"] is not None else 0,
+      "size_bytes": row["sizeInBytes"] if row["sizeInBytes"] is not None else 0,
+      "size_gb": round(row["sizeInBytes"] / (1024**3), 2) if row["sizeInBytes"] else 0.0,
+      "location": row["location"]
+    })
+  except Exception as e:
+    # Some tables may fail (deleted, no permission, external non-delta, etc.)
+    results.append({
+      "full_name": full_table,
+      "size_bytes": None,
+      "size_gb": None,
+      "error": str(e)
+    })
+
+# Create final DataFrame
+result_df = spark.createDataFrame(results)
+
+# Show summary
+result_df.select(
+  "catalog", "schema", "table", "full_name",
+  "format", "num_files", "size_gb", "size_bytes"
+).orderBy(col("size_bytes").desc()).show(100, truncate=False)
+
+# Grand totals
+result_df.agg(
+  count("*").alias("total_tables"),
+  sum("size_bytes").alias("total_size_bytes"),
+  (sum("size_bytes") / (1024**3)).alias("total_size_gb")
+).show(truncate=False)
+
+# Optionally save
+# result_df.write.mode("overwrite").saveAsTable("my_catalog.my_schema.table_sizes")
+
+
+
+--------------
+
 import java.sql.*;
 public class TestJDBC {
     public static void main(String[] args) {
