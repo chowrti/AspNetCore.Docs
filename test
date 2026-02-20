@@ -1,3 +1,153 @@
+
+from pyspark.sql import SparkSession
+from pyspark.sql.types import (
+    StructType, StructField, StringType, LongType, DoubleType, 
+    IntegerType
+)
+from pyspark.sql.functions import col
+
+spark = SparkSession.builder.getOrCreate()
+
+# ──────────────────────────────────────────────
+# 1. Get list of all tables in the catalog(s)
+# ──────────────────────────────────────────────
+# Option A: All accessible catalogs (via system schema)
+df_tables = spark.sql("""
+  SELECT 
+    table_catalog,
+    table_schema,
+    table_name,
+    table_type,
+    CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_name
+  FROM system.information_schema.tables
+  WHERE table_type IN ('MANAGED', 'EXTERNAL')
+    AND is_temporary = false
+  ORDER BY table_catalog, table_schema, table_name
+""")
+
+# Option B: Specific catalog only (uncomment & change name if preferred)
+# catalog_name = "main"
+# df_tables = spark.sql(f"""
+#   SELECT 
+#     '{catalog_name}' AS table_catalog,
+#     table_schema,
+#     table_name,
+#     table_type,
+#     CONCAT('{catalog_name}', '.', table_schema, '.', table_name) AS full_name
+#   FROM {catalog_name}.information_schema.tables
+#   WHERE table_type IN ('MANAGED', 'EXTERNAL')
+#     AND is_temporary = false
+# """)
+
+# Collect full table names
+tables_list = [row.full_name for row in df_tables.select("full_name").collect()]
+
+print(f"Found {len(tables_list)} tables to process.")
+
+# ──────────────────────────────────────────────
+# 2. Define the expected schema for the final result (prevents empty inference error)
+# ──────────────────────────────────────────────
+result_schema = StructType([
+    StructField("catalog",    StringType(),  True),
+    StructField("schema",     StringType(),  True),
+    StructField("table",      StringType(),  True),
+    StructField("full_name",  StringType(),  True),
+    StructField("table_type", StringType(),  True),
+    StructField("format",     StringType(),  True),
+    StructField("num_files",  LongType(),    True),
+    StructField("size_bytes", LongType(),    True),
+    StructField("size_gb",    DoubleType(),  True),
+    StructField("location",   StringType(),  True),
+    StructField("error",      StringType(),  True)   # optional error message
+])
+
+# ──────────────────────────────────────────────
+# 3. Loop and gather stats
+# ──────────────────────────────────────────────
+results = []
+
+for full_table in tables_list:
+    try:
+        detail_df = spark.sql(f"DESCRIBE DETAIL `{full_table}`")
+        
+        # If DESCRIBE DETAIL returns 0 rows → rare but possible (e.g. view-like, broken table)
+        if detail_df.count() == 0:
+            raise Exception("DESCRIBE DETAIL returned empty result")
+        
+        row = detail_df.collect()[0]
+        
+        # Safely extract fields (some columns may vary or be null)
+        database_part = row["database"] if "database" in row.asDict() else ""
+        schema_name = row.get("schema", database_part.split(".")[-1] if "." in database_part else database_part)
+        table_name  = row.get("name", full_table.split(".")[-1])
+        
+        results.append({
+            "catalog":    full_table.split(".")[0],
+            "schema":     schema_name,
+            "table":      table_name,
+            "full_name":  full_table,
+            "table_type": row.get("type", row.get("tableType", "UNKNOWN")),
+            "format":     row.get("format", "UNKNOWN"),
+            "num_files":  row.get("numFiles", 0) or 0,
+            "size_bytes": row.get("sizeInBytes", 0) or 0,
+            "size_gb":    round((row.get("sizeInBytes", 0) or 0) / (1024 ** 3), 2),
+            "location":   row.get("location", None),
+            "error":      None
+        })
+        
+    except Exception as e:
+        # Capture failures (permission, table dropped, non-Delta, etc.)
+        results.append({
+            "catalog":    full_table.split(".")[0] if "." in full_table else None,
+            "schema":     None,
+            "table":      None,
+            "full_name":  full_table,
+            "table_type": None,
+            "format":     None,
+            "num_files":  None,
+            "size_bytes": None,
+            "size_gb":    None,
+            "location":   None,
+            "error":      str(e)[:500]  # truncate long errors
+        })
+
+# ──────────────────────────────────────────────
+# 4. Create final DataFrame — now safe even if results is empty
+# ──────────────────────────────────────────────
+if results:
+    result_df = spark.createDataFrame(results, schema=result_schema)
+else:
+    # Edge case: literally zero tables processed → still create empty DF with schema
+    result_df = spark.createDataFrame([], schema=result_schema)
+
+# ──────────────────────────────────────────────
+# 5. Show results
+# ──────────────────────────────────────────────
+print("Top 20 largest tables:")
+result_df.select(
+    "catalog", "schema", "table", "full_name",
+    "format", "num_files", "size_gb", "size_bytes", "error"
+).orderBy(col("size_bytes").desc_nulls_last()).show(20, truncate=False)
+
+print("Grand totals:")
+result_df.agg(
+    {"num_files":   "sum"},
+    {"size_bytes":  "sum"},
+    {"size_gb":     "sum"}
+).withColumnRenamed("sum(num_files)",   "total_files") \
+ .withColumnRenamed("sum(size_bytes)",  "total_size_bytes") \
+ .withColumnRenamed("sum(size_gb)",     "total_size_gb") \
+ .show(truncate=False)
+
+# Optional: save for later use
+# result_df.write.mode("overwrite").saveAsTable("your_catalog.your_schema.table_sizes_report")
+
+
+
+
+---
+
+
 # PySpark in notebook – adapt catalog name
 catalog = "bronze_catalog"  # ← change this
 
