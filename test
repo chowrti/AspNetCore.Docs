@@ -1,3 +1,43 @@
+# PySpark in notebook – adapt catalog name
+catalog = "bronze_catalog"  # ← change this
+
+df_tables = spark.sql(f"""
+  SELECT 
+    table_catalog,
+    table_schema,
+    table_name,
+    CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_name
+  FROM {catalog}.information_schema.tables
+  WHERE table_type IN ('MANAGED', 'EXTERNAL')
+    AND is_temporary = FALSE
+""")
+
+tables = [r.full_name for r in df_tables.collect()]
+
+results = []
+for t in tables:
+  try:
+    detail = spark.sql(f"DESCRIBE DETAIL `{t}`").collect()[0]
+    results.append({
+      "full_name": t,
+      "num_files": detail.numFiles or 0,
+      "size_gb": round((detail.sizeInBytes or 0) / (1024**3), 2)
+    })
+  except:
+    pass  # skip broken tables
+
+result_df = spark.createDataFrame(results)
+result_df.orderBy("size_gb", ascending=False).show(50, truncate=False)
+
+result_df.agg(
+  {"size_gb": "sum"}
+).withColumnRenamed("sum(size_gb)", "total_bronze_gb").show()
+
+
+
+
+----------------
+
 from pyspark.sql.functions import col, concat_ws, lit
 
 # ──────────────────────────────────────────────
