@@ -1,3 +1,112 @@
+from pyspark.sql.types import (
+    StructType, StructField, StringType, LongType, DoubleType
+)
+from pyspark.sql.functions import col
+
+# Your catalog choice (use specific one if possible to reduce noise)
+# catalog_name = "your_bronze_catalog"  # ← uncomment and set
+
+df_tables = spark.sql("""
+  SELECT 
+    table_catalog,
+    table_schema,
+    table_name,
+    table_type,
+    CONCAT(table_catalog, '.', table_schema, '.', table_name) AS full_name
+  FROM system.information_schema.tables
+  WHERE table_type IN ('MANAGED', 'EXTERNAL')          -- exclude VIEW, MATERIALIZED VIEW, etc.
+    AND is_temporary = false
+  ORDER BY table_catalog, table_schema, table_name
+""")
+
+# If targeting one catalog only (safer/faster):
+# df_tables = spark.sql(f"""
+#   SELECT table_catalog, table_schema, table_name, table_type,
+#          CONCAT('{catalog_name}', '.', table_schema, '.', table_name) AS full_name
+#   FROM {catalog_name}.information_schema.tables
+#   WHERE table_type IN ('MANAGED', 'EXTERNAL') AND is_temporary = false
+# """)
+
+tables_list = [row.full_name for row in df_tables.collect()]
+print(f"Found {len(tables_list)} eligible tables (managed/external only).")
+
+# Explicit schema for final DF (prevents empty inference issues)
+result_schema = StructType([
+    StructField("catalog",    StringType(), True),
+    StructField("schema",     StringType(), True),
+    StructField("table",      StringType(), True),
+    StructField("full_name",  StringType(), True),
+    StructField("table_type", StringType(), True),
+    StructField("format",     StringType(), True),
+    StructField("num_files",  LongType(),   True),
+    StructField("size_bytes", LongType(),   True),
+    StructField("size_gb",    DoubleType(), True),
+    StructField("location",   StringType(), True),
+    StructField("error",      StringType(), True)
+])
+
+results = []
+
+for full_table in tables_list:
+    try:
+        detail_df = spark.sql(f"DESCRIBE DETAIL `{full_table}`")
+        if detail_df.count() == 0:
+            raise Exception("DESCRIBE DETAIL returned no rows")
+        
+        row = detail_df.collect()[0]
+        
+        results.append({
+            "catalog":    row.get("catalog", full_table.split(".")[0]),
+            "schema":     row.get("schema", full_table.split(".")[1]),
+            "table":      row.get("name", full_table.split(".")[2]),
+            "full_name":  full_table,
+            "table_type": row.get("type", row.get("tableType", "TABLE")),
+            "format":     row.get("format", "DELTA"),  # assume Delta if missing
+            "num_files":  row.get("numFiles", 0) or 0,
+            "size_bytes": row.get("sizeInBytes", 0) or 0,
+            "size_gb":    round((row.get("sizeInBytes", 0) or 0) / (1024**3), 2),
+            "location":   row.get("location"),
+            "error":      None
+        })
+    except Exception as e:
+        err_str = str(e)
+        if "TABLE_OR_VIEW_NOT_FOUND" in err_str or "not found" in err_str.lower():
+            results.append({
+                "full_name": full_table,
+                "error": "TABLE_OR_VIEW_NOT_FOUND - likely a view, dropped table, or permission issue"
+            })
+        else:
+            results.append({
+                "full_name": full_table,
+                "error": err_str[:400]
+            })
+
+# Create DF safely
+result_df = spark.createDataFrame(results, schema=result_schema) if results else spark.createDataFrame([], result_schema)
+
+# Display
+result_df.filter(col("error").isNull()) \
+  .orderBy(col("size_bytes").desc_nulls_last()) \
+  .select("full_name", "size_gb", "num_files", "format", "location") \
+  .show(20, truncate=False)
+
+print("Summary of failures:")
+result_df.filter(col("error").isNotNull()).select("full_name", "error").show(truncate=False)
+
+# Totals (only successful ones)
+result_df.filter(col("error").isNull()).agg(
+    sum("size_gb").alias("total_size_gb"),
+    sum("num_files").alias("total_files"),
+    count("*").alias("successful_tables")
+).show()
+
+
+
+
+
+---------------- 
+
+
 
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
