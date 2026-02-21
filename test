@@ -1,3 +1,19 @@
+
+# Get token for Graph (change scopes if needed)
+token=$(az account get-access-token --resource-type ms-graph --query accessToken -o tsv)
+
+# Call Graph API
+curl -H "Authorization: Bearer $token" \
+     -H "Content-Type: application/json" \
+     "https://graph.microsoft.com/v1.0/servicePrincipals?\$filter=appId eq 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'&\$select=displayName,id,appId"
+
+
+curl -H "Authorization: Bearer $token" \
+     "https://graph.microsoft.com/v1.0/servicePrincipals/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx?\$select=displayName"
+
+
+
+
 $env:Path -split ';' | Where-Object { $_ -like '*Azure CLI*' }
 
 
