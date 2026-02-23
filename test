@@ -1,3 +1,16 @@
+-- In dev workspace (or anywhere with access to both catalogs)
+CREATE OR REPLACE TABLE qa_catalog.schema.my_table
+DEEP CLONE dev_catalog.schema.my_table;
+
+-- or for zero-copy metadata + lazy data (if managed table, DBR 13.3+)
+CREATE OR REPLACE TABLE qa_catalog.schema.my_table
+SHALLOW CLONE dev_catalog.schema.my_table;
+
+
+
+------------
+
+
 
 # Get token for Graph (change scopes if needed)
 token=$(az account get-access-token --resource-type ms-graph --query accessToken -o tsv)
