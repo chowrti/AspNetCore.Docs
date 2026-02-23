@@ -1,3 +1,47 @@
+%pip install msal requests
+
+
+
+
+import msal
+import requests
+
+# ── CONFIG ────────────────────────────────────────────────────────────
+tenant_id     = dbutils.secrets.get("your-scope", "tenant-id")
+client_id     = "your-spn-client-id-here"
+client_secret = dbutils.secrets.get("your-scope", "spn-secret")
+
+authority = f"https://login.microsoftonline.com/{tenant_id}"
+scope     = ["https://graph.microsoft.com/.default"]
+
+# Get token
+app = msal.ConfidentialClientApplication(client_id, authority=authority, client_credential=client_secret)
+result = app.acquire_token_for_client(scopes=scope)
+
+if "access_token" not in result:
+    raise Exception(result.get("error_description", "Token acquisition failed"))
+
+token = result["access_token"]
+
+# Query Graph
+url = f"https://graph.microsoft.com/v1.0/servicePrincipals(appId='{client_id}')"
+headers = {"Authorization": f"Bearer {token}"}
+
+resp = requests.get(url, headers=headers)
+
+if resp.status_code == 200:
+    sp = resp.json()
+    print(f"Display Name: {sp.get('displayName', 'N/A')}")
+    print(f"Object ID   : {sp.get('id')}")
+    print(f"App ID      : {sp.get('appId')}")
+else:
+    print(f"Failed ({resp.status_code}): {resp.text}")
+
+
+
+
+------------
+
 -- In dev workspace (or anywhere with access to both catalogs)
 CREATE OR REPLACE TABLE qa_catalog.schema.my_table
 DEEP CLONE dev_catalog.schema.my_table;
