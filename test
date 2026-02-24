@@ -1,49 +1,87 @@
-# Cell: Token + Graph call (with warning suppression)
-import msal
+# Cell 1: (Optional) If you need to install anything extra – usually not needed
+# requests is pre-installed in Databricks
+# %pip install requests   # only if really necessary
+
+# Cell 2: Pure requests version – get token + call Graph API
 import requests
 import json
 import urllib3
+import warnings
 
-# ─── Suppress the annoying warning ───
+# ─── Suppress the InsecureRequestWarning (appears because of verify=False) ───
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-# ─────────────────────────────────────
+# Alternative if the above doesn't catch it in some runtimes:
+# requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
+# ──────────────────────────────────────────────────────────────────────────────
 
-# ================== CONFIG ==================
-tenant_id     = dbutils.secrets.get(scope="graph-scope", key="tenant-id")
-client_id     = dbutils.secrets.get(scope="graph-scope", key="client-id")
-client_secret = dbutils.secrets.get(scope="graph-scope", key="client-secret")
+# ================== CONFIG (use secrets – never hard-code!) ==================
+tenant_id        = dbutils.secrets.get(scope="graph-scope", key="tenant-id")
+client_id        = dbutils.secrets.get(scope="graph-scope", key="client-id")
+client_secret    = dbutils.secrets.get(scope="graph-scope", key="client-secret")
 
-target_spn_client_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-# ===========================================
+target_spn_client_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"   # ← Replace with the appId you want to look up
+# =============================================================================
 
-authority = f"https://login.microsoftonline.com/{tenant_id}"
-app = msal.ConfidentialClientApplication(
-    client_id=client_id,
-    client_credential=client_secret,
-    authority=authority
+# 1. Acquire access token using client credentials flow
+token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+
+token_data = {
+    "client_id": client_id,
+    "client_secret": client_secret,
+    "scope": "https://graph.microsoft.com/.default",
+    "grant_type": "client_credentials"
+}
+
+print("Requesting access token...")
+
+token_response = requests.post(
+    token_url,
+    data=token_data,
+    verify=False                    # Temporary – bypass proxy/self-signed cert issue
 )
 
-result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
+if token_response.status_code != 200:
+    print(f"Token request failed ({token_response.status_code}):")
+    print(token_response.text)
+    raise Exception("Failed to get access token")
 
-if "access_token" not in result:
-    raise Exception(f"Token failed: {result.get('error_description', result)}")
+token_json = token_response.json()
+access_token = token_json["access_token"]
 
-access_token = result["access_token"]
-print("Token acquired (expires in ~", result.get("expires_in"), "seconds)")
+print(f"✅ Token acquired successfully (expires in ~{token_json.get('expires_in', 'N/A')} seconds)")
 
-# Graph call – still using verify=False for now
-graph_url = f"https://graph.microsoft.com/v1.0/servicePrincipals(appId='{target_spn_client_id}')?$select=displayName,appId,id"
+# 2. Call Microsoft Graph to get service principal details by appId
+graph_url = (
+    f"https://graph.microsoft.com/v1.0/servicePrincipals"
+    f"(appId='{target_spn_client_id}')"
+    f"?$select=displayName,appId,id,createdDateTime,appOwnerOrganizationId"
+)
 
-headers = {"Authorization": f"Bearer {access_token}"}
+headers = {
+    "Authorization": f"Bearer {access_token}",
+    "Content-Type": "application/json"
+}
 
-response = requests.get(graph_url, headers=headers, verify=False)
+print("Querying service principal...")
 
-if response.status_code == 200:
-    print("Success:")
-    print(json.dumps(response.json(), indent=2))
+graph_response = requests.get(
+    graph_url,
+    headers=headers,
+    verify=False                    # Temporary – same reason as above
+)
+
+if graph_response.status_code == 200:
+    spn_data = graph_response.json()
+    print("\n✅ Service Principal found:")
+    print(json.dumps(spn_data, indent=2))
+    
+    # Quick friendly output
+    print(f"\nDisplay Name: {spn_data.get('displayName', 'Not found')}")
+    print(f"App ID     : {spn_data.get('appId')}")
+    print(f"Object ID  : {spn_data.get('id')}")
 else:
-    print(f"Failed ({response.status_code}): {response.text}")
-
+    print(f"\n❌ Graph API call failed ({graph_response.status_code}):")
+    print(graph_response.text)
 
 
 
