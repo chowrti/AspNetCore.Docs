@@ -1,8 +1,12 @@
+# Cell: Token + Graph call (with warning suppression)
+import msal
 import requests
 import json
-import warnings
+import urllib3
 
-warnings.filterwarnings("ignore", category=requests.packages.urllib3.exceptions.InsecureRequestWarning)
+# ─── Suppress the annoying warning ───
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# ─────────────────────────────────────
 
 # ================== CONFIG ==================
 tenant_id     = dbutils.secrets.get(scope="graph-scope", key="tenant-id")
@@ -12,22 +16,22 @@ client_secret = dbutils.secrets.get(scope="graph-scope", key="client-secret")
 target_spn_client_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 # ===========================================
 
-# 1. Get access token
-token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
-token_data = {
-    "client_id": client_id,
-    "client_secret": client_secret,
-    "scope": "https://graph.microsoft.com/.default",
-    "grant_type": "client_credentials"
-}
+authority = f"https://login.microsoftonline.com/{tenant_id}"
+app = msal.ConfidentialClientApplication(
+    client_id=client_id,
+    client_credential=client_secret,
+    authority=authority
+)
 
-token_resp = requests.post(token_url, data=token_data, verify=False)
-token_resp.raise_for_status()
-access_token = token_resp.json()["access_token"]
+result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
 
-print("✅ Token acquired")
+if "access_token" not in result:
+    raise Exception(f"Token failed: {result.get('error_description', result)}")
 
-# 2. Query service principal
+access_token = result["access_token"]
+print("Token acquired (expires in ~", result.get("expires_in"), "seconds)")
+
+# Graph call – still using verify=False for now
 graph_url = f"https://graph.microsoft.com/v1.0/servicePrincipals(appId='{target_spn_client_id}')?$select=displayName,appId,id"
 
 headers = {"Authorization": f"Bearer {access_token}"}
@@ -35,11 +39,10 @@ headers = {"Authorization": f"Bearer {access_token}"}
 response = requests.get(graph_url, headers=headers, verify=False)
 
 if response.status_code == 200:
-    print("✅ Success:")
+    print("Success:")
     print(json.dumps(response.json(), indent=2))
 else:
-    print(f"❌ Failed ({response.status_code}): {response.text}")
-
+    print(f"Failed ({response.status_code}): {response.text}")
 
 
 
