@@ -1,3 +1,62 @@
+# Cell 1: Install required libraries (notebook-scoped – runs once per session)
+%pip install msal requests
+dbutils.library.restartPython()  # optional but recommended after install
+
+
+
+# Cell 2: Get token + call Graph API
+import msal
+import requests
+import json
+
+# ================== CONFIG (use secrets in production!) ==================
+tenant_id     = dbutils.secrets.get(scope="graph-scope", key="tenant-id")
+client_id     = dbutils.secrets.get(scope="graph-scope", key="client-id")      # SPN that has Application.Read.All
+client_secret = dbutils.secrets.get(scope="graph-scope", key="client-secret")
+
+target_spn_client_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"   # ← The SPN client ID you want the name for
+# =====================================================================
+
+# 1. Acquire token for Microsoft Graph (client credentials flow)
+authority = f"https://login.microsoftonline.com/{tenant_id}"
+app = msal.ConfidentialClientApplication(
+    client_id=client_id,
+    client_credential=client_secret,
+    authority=authority
+)
+
+result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
+
+if "access_token" not in result:
+    raise Exception(f"Token acquisition failed: {result.get('error_description', result)}")
+
+access_token = result["access_token"]
+print("✅ Token acquired successfully (expires in", result.get("expires_in", "N/A"), "seconds)")
+
+# 2. Call Microsoft Graph to get SPN by appId (client ID)
+graph_url = f"https://graph.microsoft.com/v1.0/servicePrincipals(appId='{target_spn_client_id}')?$select=displayName,appId,id,createdDateTime"
+
+headers = {
+    "Authorization": f"Bearer {access_token}",
+    "Content-Type": "application/json"
+}
+
+response = requests.get(graph_url, headers=headers)
+
+if response.status_code == 200:
+    spn = response.json()
+    print("✅ SPN found!")
+    print(json.dumps(spn, indent=2))
+    # Example output keys:
+    # displayName, appId, id (objectId), createdDateTime, etc.
+else:
+    print(f"❌ Error {response.status_code}: {response.text}")
+
+
+
+
+------------------ 
+
 %pip install msal requests
 
 
