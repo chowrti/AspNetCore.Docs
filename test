@@ -1,13 +1,15 @@
-host = spark.conf.get("spark.databricks.workspaceUrl")
-env = "unknown"
-if "dev" in host.lower():
-    env = "dev"
-elif "stg" in host.lower() or "stage" in host.lower():
-    env = "staging"
-elif "prod" in host.lower():
-    env = "prod"
+import json
 
-print(f"Environment: {env}")
+tags_str = spark.conf.get("spark.databricks.clusterUsageTags.clusterAllTags", "[]")
+tags = json.loads(tags_str)
+
+# Find your tag
+env_tag = next((t["value"] for t in tags if t["key"] == "workspace_env"), "unknown")
+name_tag = next((t["value"] for t in tags if t["key"] == "friendly_name"), "unknown")
+
+print(f"Environment from cluster tag: {env_tag}")
+print(f"Workspace name from tag: {name_tag}")
+
 
 
 
