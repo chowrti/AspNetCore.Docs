@@ -4,6 +4,16 @@ curl -X POST https://login.microsoftonline.com/<your-azure-tenant-id>/oauth2/v2.
   -d "scope=2ff814a6-3304-4ab8-85cb-cd0e6f879c1d/.default" \
   -d "grant_type=client_credentials"
 
+curl -X POST https://<west-server-hostname>/api/2.0/sql/statements \
+  -H "Authorization: Bearer <your-databricks-pat>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "warehouse_id": "<west-warehouse-id>",
+    "statement": "SELECT 1",
+    "wait_timeout": "0s"
+  }'
+
+
 
 
 
