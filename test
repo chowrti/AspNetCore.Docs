@@ -1,3 +1,20 @@
+host = spark.conf.get("spark.databricks.workspaceUrl")
+env = "unknown"
+if "dev" in host.lower():
+    env = "dev"
+elif "stg" in host.lower() or "stage" in host.lower():
+    env = "staging"
+elif "prod" in host.lower():
+    env = "prod"
+
+print(f"Environment: {env}")
+
+
+
+---
+
+
+
 # Cell 1 – Python
 table_name = dbutils.widgets.get("table_name")   # or get from task parameter, etc.
 full_name = f"dev_silver.{table_name}"           # or whatever logic you need
