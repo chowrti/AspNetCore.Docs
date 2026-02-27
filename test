@@ -1,3 +1,22 @@
+<Resource id="jdbc/DatabricksDS" type="javax.sql.DataSource">
+    JdbcDriver              com.databricks.client.jdbc.Driver
+    JdbcUrl                 jdbc:databricks://<your-workspace-hostname>:443/default;httpPath=/sql/1.0/warehouses/<warehouse-id>;transportMode=http;ssl=1;AuthMech=3
+    UserName                token
+    Password                dapiYourLongTokenHere1234567890abcdef
+    JtaManaged              true
+    maxActive               10
+    maxIdle                 5
+    initialSize             2
+    validationQuery         SELECT 1
+    testOnBorrow            true
+    timeBetweenEvictionRunsMillis 30000
+</Resource>
+
+
+
+
+------------
+
 %pip install databricks-sdk --quiet
 dbutils.library.restartPython()   # if you just installed it
 
