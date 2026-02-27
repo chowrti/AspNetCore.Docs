@@ -2,34 +2,33 @@
 dbutils.library.restartPython()   # if you just installed it
 
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.compute import ClusterState
 
-w = WorkspaceClient()   # automatically uses the notebook's auth (runs as you)
+w = WorkspaceClient()  # uses notebook's auth context
 
-cluster_id = "your-cluster-id-1234567890abcdef"          # ← change this
-# or get current cluster: 
+cluster_id = "your-cluster-id-1234567890abcdef"          # or get current one below
 # cluster_id = spark.conf.get("spark.databricks.clusterUsageTags.clusterId")
 
 print(f"Requesting restart of cluster {cluster_id}...")
 
 w.clusters.restart(cluster_id=cluster_id)
 
-# Optional: wait & poll status (recommended in automation)
+# Optional: poll until running (recommended)
 import time
 
 while True:
     c = w.clusters.get(cluster_id=cluster_id)
-    state = c.state
+    state = c.state          # this is a string like "RUNNING", "TERMINATED", etc.
     print(f"Cluster state: {state}")
     
-    if state == ClusterState.RUNNING:
+    if state == "RUNNING":
         print("Cluster is back up and running.")
         break
-    if state in [ClusterState.TERMINATED, ClusterState.UNKNOWN, ClusterState.ERROR]:
+    
+    if state in ["TERMINATED", "ERROR", "UNKNOWN"]:
         print(f"Cluster in bad state: {state} – giving up.")
         break
     
-    time.sleep(15)   # poll every 15 seconds
+    time.sleep(15)  # poll every 15s
 
 
 
