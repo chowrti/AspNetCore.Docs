@@ -1,3 +1,57 @@
+CREATE TABLE dbo.ADFPipelineExecutionLog
+(
+    LogId                   BIGINT IDENTITY(1,1) PRIMARY KEY,
+    PipelineRunId           NVARCHAR(50) NOT NULL,              -- pipeline().RunId
+    PipelineName            NVARCHAR(200) NOT NULL,
+    TriggerName             NVARCHAR(200) NULL,                 -- pipeline().TriggerName or Trigger().name
+    TriggerTime             DATETIME2 NOT NULL,                 -- pipeline().TriggerTime or @utcnow()
+    StartTime               DATETIME2 NOT NULL,
+    EndTime                 DATETIME2 NULL,
+    DurationSeconds         INT NULL,                           -- datediff(second, StartTime, EndTime)
+    Status                  NVARCHAR(50) NOT NULL,              -- Succeeded, Failed, InProgress, Cancelled, etc.
+    ParametersJson          NVARCHAR(MAX) NULL,                 -- string(pipeline().parameters) or specific params
+    GroupId                 NVARCHAR(50) NULL,                  -- for grouping related runs (e.g. master/child, daily batch id)
+    
+    -- Activity / granular level (if logging per activity, or leave null for pipeline-level)
+    ActivityName            NVARCHAR(200) NULL,
+    ActivityType            NVARCHAR(100) NULL,
+    
+    -- Especially useful for Copy / Mapping Data Flow
+    RowsRead                BIGINT NULL,
+    RowsWritten             BIGINT NULL,
+    DataReadBytes           BIGINT NULL,                        -- in bytes
+    DataWrittenBytes        BIGINT NULL,
+    FilesRead               INT NULL,
+    FilesWritten            INT NULL,
+    FilesSkipped            INT NULL,
+    ThroughputBytesPerSec   DECIMAL(18,2) NULL,                 -- copy performance indicator
+    
+    -- Error handling
+    ErrorCode               NVARCHAR(100) NULL,
+    ErrorMessage            NVARCHAR(MAX) NULL,
+    ErrorDetailsJson        NVARCHAR(MAX) NULL,
+    
+    -- Additional useful metrics
+    SourcePartitionCount    INT NULL,
+    SinkPartitionCount      INT NULL,
+    CpuTimeMs               BIGINT NULL,                        -- sometimes available in data flow
+    QueuedDurationMs        BIGINT NULL,
+    ExecutionDurationMs     BIGINT NULL,
+    
+    -- Auditing / traceability
+    LoggedBy                NVARCHAR(100) NULL DEFAULT SUSER_SNAME(),
+    LoggedAt                DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    
+    -- Indexes for fast querying
+    INDEX idx_RunId         NONCLUSTERED (PipelineRunId),
+    INDEX idx_PipelineName  NONCLUSTERED (PipelineName, StartTime),
+    INDEX idx_Status        NONCLUSTERED (Status)
+);
+
+
+
+-----
+
 <Resource id="jdbc/DatabricksDS" type="javax.sql.DataSource">
     JdbcDriver              com.databricks.client.jdbc.Driver
     JdbcUrl                 jdbc:databricks://<your-workspace-hostname>:443/default;httpPath=/sql/1.0/warehouses/<warehouse-id>;transportMode=http;ssl=1;AuthMech=3
