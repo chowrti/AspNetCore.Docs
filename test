@@ -1,3 +1,16 @@
+Centralized audit logging — Captures comprehensive account-level and workspace-level events in a single, queryable table (system.access.audit), eliminating the need for per-workspace configuration.
+Security monitoring & threat detection — Tracks user identities, source IPs, actions (e.g., logins, data access like getTable, table creations/deletions), and suspicious activities to identify unauthorized access or anomalies.
+Compliance & regulatory readiness — Provides verifiable, timestamped evidence of who accessed what data, when, and how — essential for audits (e.g., GDPR, HIPAA, SOC), with 365 days of free retention.
+Data governance & access transparency — Reveals actual data usage patterns, validates access controls, and supports fine-grained governance in Unity Catalog environments.
+Incident response & forensics — Enables reconstruction of event timelines, query sequences, and session details for quick root-cause analysis during breaches or failures.
+Operational visibility — Monitors platform activities (e.g., warehouse starts/stops, cluster management, job executions) across services like unityCatalog, databrickssql, and more.
+Easy querying & analytics — Structured schema (e.g., event_time, user_identity.email, action_name, request_params, response.statusCode) allows powerful SQL-based analysis, alerting, and dashboards without external tools.
+Cost-effective observability — Built-in system table with streaming support and no extra ingestion overhead — turn on a small warehouse to analyze historical data.
+Improved accountability — Logs actions by users, service principals, and jobs (run_by/run_as), helping enforce policies and attribute changes/responsibility.
+
+
+---
+
 curl 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/' -H Metadata:true
 
 
