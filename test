@@ -1,13 +1,13 @@
-Tracks real data access
-Logs who accessed tables/views/columns (success/failure)
-Audits permission changes
-Captures grants, revokes, ownership updates
-Supports compliance & audits
-Immutable 365-day records for GDPR, HIPAA, SOC 2
-Enables security monitoring
-Detects anomalies, unauthorized attempts, threats
-Drives least-privilege reviews
-Identifies over-privileged users via access patterns
+Enable verbose/detailed logging before running:
+In Director: Job → Properties → Parameters → add or set DS_LOG_LEVEL or similar (if available in your version).
+Or in the job sequence/job properties: Set Log verbose messages or Extended log options under the Run tab.
+Recompile and run the job with Warnings enabled (Settings > Run > Warnings).
+
+Look for fatal/error/warning messages with prefixes like:
+IIS-CONN-JDBC- (e.g., IIS-CONN-JDBC-00001E, IIS-CONN-DAAPI-00099)
+java.sql.SQLException
+com.databricks.jdbc or com.simba (if using Simba-based Databricks driver)
+
 
 
 ---
