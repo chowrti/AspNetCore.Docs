@@ -1,3 +1,7 @@
+In DataStage Director client:
+Open the job → View → Log (or right-click the job execution → Show Log).
+Look for entries from the JDBC Connector stage (e.g., lines starting with stage name like JDBC_Stage_Name).
+
 Enable verbose/detailed logging before running:
 In Director: Job → Properties → Parameters → add or set DS_LOG_LEVEL or similar (if available in your version).
 Or in the job sequence/job properties: Set Log verbose messages or Extended log options under the Run tab.
