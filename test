@@ -1,3 +1,14 @@
+-- List all warehouses (if you have permission)
+SHOW WAREHOUSES;
+
+-- Show grants on your current warehouse (handy in notebooks / queries)
+SELECT current_warehouse();   -- or use the name directly
+
+SHOW GRANTS ON WAREHOUSE `<result_from_current_warehouse>`;
+
+
+
+
 SHOW GRANTS ON WAREHOUSE my_company_warehouse;
 
 
