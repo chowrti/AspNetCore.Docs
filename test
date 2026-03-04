@@ -1,3 +1,7 @@
+;SSLServerCert=*
+
+
+
 In DataStage Director client:
 Open the job → View → Log (or right-click the job execution → Show Log).
 Look for entries from the JDBC Connector stage (e.g., lines starting with stage name like JDBC_Stage_Name).
