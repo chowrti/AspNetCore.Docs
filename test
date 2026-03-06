@@ -1,3 +1,47 @@
+WITH target AS (
+    SELECT 'data-analysts-group' AS p   -- ← CHANGE HERE
+)
+
+SELECT 
+    'CATALOG' AS obj_type,
+    catalog_name AS obj,
+    privilege_type AS priv,
+    grantee,
+    is_grantable,
+    granted_by
+FROM information_schema.catalog_privileges, target
+WHERE LOWER(grantee) = LOWER(target.p)
+
+UNION ALL
+
+SELECT 
+    'SCHEMA',
+    catalog_name || '.' || schema_name,
+    privilege_type,
+    grantee,
+    is_grantable,
+    granted_by
+FROM information_schema.schema_privileges, target
+WHERE LOWER(grantee) = LOWER(target.p)
+
+UNION ALL
+
+SELECT 
+    CASE WHEN table_type = 'VIEW' THEN 'VIEW' ELSE 'TABLE' END,
+    table_catalog || '.' || table_schema || '.' || table_name,
+    privilege_type,
+    grantee,
+    is_grantable,
+    granted_by
+FROM information_schema.table_privileges, target
+WHERE LOWER(grantee) = LOWER(target.p)
+
+ORDER BY obj_type, obj, priv;
+
+----------
+
+
+
 principal = "`data-analysts-group`"          # or "`user@company.com`", or "`00000000-0000-0000-0000-000000000001`" for SP, or managed identity display name
 # principal = "`00000000-0000-0000-0000-000000000001`"   # example for service principal (application ID)
 # principal = "`my-uami-name`"                           # user-assigned managed identity (UAMI)
