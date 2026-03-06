@@ -1,3 +1,48 @@
+conditions = [
+    {"col": "country",  "op": "=",   "val": "USA",     "logic": "AND"},
+    {"col": "year",     "op": ">=",  "val": 2023,      "logic": "AND"},
+    {"col": "category", "op": "=",   "val": "Phone",   "logic": "OR"},
+    {"col": "category", "op": "=",   "val": "Tablet",  "logic": "OR"},
+    {"col": "revenue",  "op": ">",   "val": 500000,    "logic": "AND"},
+]
+
+# Build
+and_clauses = []
+or_clauses  = []
+
+for c in conditions:
+    col = c["col"]
+    op  = c["op"]
+    val = c["val"]
+
+    if isinstance(val, str):
+        val_str = f"'{val.replace("'", "''")}'"
+    else:
+        val_str = str(val)
+
+    clause = f"{col} {op} {val_str}"
+
+    if c["logic"].upper() == "AND":
+        and_clauses.append(clause)
+    elif c["logic"].upper() == "OR":
+        or_clauses.append(clause)
+
+where_parts = []
+if and_clauses:
+    where_parts.append(" AND ".join(and_clauses))
+if or_clauses:
+    where_parts.append(f"({' OR '.join(or_clauses)})")
+
+where_sql = " AND ".join(where_parts) if where_parts else "TRUE"
+
+df_filtered = df.filter(where_sql)
+
+
+
+--------------- 
+
+
+
 Install Oracle client on Self-hosted IR and create Oracle Linked Service
 Create ADLS Gen2 Linked Service and bronze Parquet/Delta dataset
 Build Copy Activity pipeline: Oracle table → bronze ADLS (full load)
