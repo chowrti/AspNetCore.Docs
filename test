@@ -1,3 +1,13 @@
+Install Oracle client on Self-hosted IR and create Oracle Linked Service
+Create ADLS Gen2 Linked Service and bronze Parquet/Delta dataset
+Build Copy Activity pipeline: Oracle table → bronze ADLS (full load)
+Add incremental logic with watermark column and dynamic WHERE query
+Parameterize pipeline (table, schema, load type) + add basic row count validation
+
+
+
+
+
 SELECT
   event_time,
   user_identity.email                        AS user,
