@@ -1,3 +1,26 @@
+SELECT
+  event_time,
+  user_identity.email                        AS user,
+  action_name,
+  request_params.securable_type,
+  request_params.securable_full_name         AS object,
+  request_params.changes                     AS permissions_changed,
+  response.statusCode                        AS status_code,
+  response.errorMessage                      AS error_message,
+  CASE 
+    WHEN response.statusCode = 200 THEN 'SUCCESS'
+    ELSE 'FAILED'
+  END                                        AS outcome
+FROM system.access.audit
+WHERE service_name     = 'unityCatalog'
+  AND action_name      IN ('changeSecurableAcls', 'grant')   -- or just 'changeSecurableAcls' in newer logs
+  -- AND request_params.changes IS NOT NULL                   -- optional: only actual grants
+ORDER BY event_time DESC
+LIMIT 100;
+
+
+
+
 -- List all warehouses (if you have permission)
 SHOW WAREHOUSES;
 
