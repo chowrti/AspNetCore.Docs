@@ -1,3 +1,415 @@
+# Databricks notebook source
+# =============================================================================
+# Unity Catalog Grants Inventory Export
+#
+# Purpose
+# -------
+# Exports Unity Catalog grants for:
+#   - catalogs
+#   - schemas
+#   - tables
+#   - views
+#   - volumes
+#
+# into a Delta table.
+#
+# Important notes
+# ---------------
+# 1) Run this as a metastore admin, workspace admin, or governance service
+#    principal with sufficient visibility. If you run this as a limited user,
+#    the inventory will be incomplete.
+#
+# 2) This notebook intentionally uses SHOW GRANTS per object instead of
+#    system.information_schema.*_privileges because information_schema is
+#    privilege-filtered.
+#
+# 3) Default target table:
+#      system_audit.uc_object_grants
+#
+# 4) Supported widgets:
+#      target_table            Fully qualified Delta table name
+#      write_mode              overwrite | append
+#      catalog_allowlist       Optional comma-separated catalogs
+#      include_system_catalog  true | false
+#      fail_on_object_error    true | false
+#
+# Output schema
+# -------------
+# inventory_object_type
+# catalog_name
+# schema_name
+# object_name
+# principal
+# privilege
+# show_grants_object_type
+# object_key
+# inherited_from_object_key
+# collected_at_utc
+# relation_type
+# target_table
+# run_started_at_utc
+# object_fqn
+# =============================================================================
+
+from pyspark.sql import functions as F
+from datetime import datetime, timezone
+
+# -----------------------------------------------------------------------------
+# Widgets / Parameters
+# -----------------------------------------------------------------------------
+dbutils.widgets.text("target_table", "system_audit.uc_object_grants", "Target Delta table")
+dbutils.widgets.dropdown("write_mode", "overwrite", ["overwrite", "append"], "Write mode")
+dbutils.widgets.text("catalog_allowlist", "", "Optional comma-separated catalog allowlist")
+dbutils.widgets.dropdown("include_system_catalog", "false", ["true", "false"], "Include system catalog")
+dbutils.widgets.dropdown("fail_on_object_error", "false", ["true", "false"], "Fail on per-object SHOW GRANTS error")
+
+TARGET_TABLE = dbutils.widgets.get("target_table").strip()
+WRITE_MODE = dbutils.widgets.get("write_mode").strip().lower()
+CATALOG_ALLOWLIST_RAW = dbutils.widgets.get("catalog_allowlist").strip()
+INCLUDE_SYSTEM_CATALOG = dbutils.widgets.get("include_system_catalog").strip().lower() == "true"
+FAIL_ON_OBJECT_ERROR = dbutils.widgets.get("fail_on_object_error").strip().lower() == "true"
+
+CATALOG_ALLOWLIST = (
+    {x.strip() for x in CATALOG_ALLOWLIST_RAW.split(",") if x.strip()}
+    if CATALOG_ALLOWLIST_RAW else None
+)
+
+run_started_at_utc = datetime.now(timezone.utc)
+
+print("TARGET_TABLE =", TARGET_TABLE)
+print("WRITE_MODE =", WRITE_MODE)
+print("CATALOG_ALLOWLIST =", CATALOG_ALLOWLIST)
+print("INCLUDE_SYSTEM_CATALOG =", INCLUDE_SYSTEM_CATALOG)
+print("FAIL_ON_OBJECT_ERROR =", FAIL_ON_OBJECT_ERROR)
+
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
+def q_ident(name: str) -> str:
+    """Quote a SQL identifier with backticks."""
+    if name is None:
+        raise ValueError("Identifier cannot be None")
+    return f"`{name.replace('`', '``')}`"
+
+def fq_catalog(catalog: str) -> str:
+    return q_ident(catalog)
+
+def fq_schema(catalog: str, schema: str) -> str:
+    return f"{q_ident(catalog)}.{q_ident(schema)}"
+
+def fq_object(catalog: str, schema: str, obj: str) -> str:
+    return f"{q_ident(catalog)}.{q_ident(schema)}.{q_ident(obj)}"
+
+def run_sql(sql_text: str):
+    return spark.sql(sql_text)
+
+def safe_collect_df(sql_text: str, object_label: str):
+    try:
+        return run_sql(sql_text)
+    except Exception as e:
+        msg = f"[ERROR] {object_label}: {str(e)}"
+        if FAIL_ON_OBJECT_ERROR:
+            raise RuntimeError(msg) from e
+        print(msg)
+        return None
+
+def normalize_show_grants_df(df, object_type: str, catalog_name=None, schema_name=None, object_name=None):
+    """
+    Normalize SHOW GRANTS output across object types into one schema.
+
+    Expected SHOW GRANTS columns often include:
+      principal, actionType, objectType, objectKey, inheritedFromObjectKey
+    """
+    cols = {c.lower(): c for c in df.columns}
+
+    def pick(*names):
+        for n in names:
+            if n.lower() in cols:
+                return F.col(cols[n.lower()])
+        return F.lit(None)
+
+    return (
+        df.select(
+            F.lit(object_type).alias("inventory_object_type"),
+            F.lit(catalog_name).alias("catalog_name"),
+            F.lit(schema_name).alias("schema_name"),
+            F.lit(object_name).alias("object_name"),
+            pick("principal").cast("string").alias("principal"),
+            pick("actionType", "action_type").cast("string").alias("privilege"),
+            pick("objectType", "object_type").cast("string").alias("show_grants_object_type"),
+            pick("objectKey", "object_key").cast("string").alias("object_key"),
+            pick("inheritedFromObjectKey", "inherited_from_object_key").cast("string").alias("inherited_from_object_key"),
+        )
+        .withColumn("collected_at_utc", F.lit(run_started_at_utc.isoformat()).cast("timestamp"))
+    )
+
+# -----------------------------------------------------------------------------
+# Validate target table name
+# -----------------------------------------------------------------------------
+target_parts = TARGET_TABLE.split(".")
+if len(target_parts) != 3:
+    raise ValueError("target_table must be fully qualified as catalog.schema.table")
+
+target_catalog, target_schema, target_table_name = target_parts
+
+# -----------------------------------------------------------------------------
+# Discover catalogs
+# -----------------------------------------------------------------------------
+catalogs_df = run_sql("SHOW CATALOGS")
+catalog_name_col = catalogs_df.columns[0]
+
+catalogs = [r[catalog_name_col] for r in catalogs_df.collect()]
+
+if not INCLUDE_SYSTEM_CATALOG:
+    catalogs = [c for c in catalogs if c.lower() != "system"]
+
+if CATALOG_ALLOWLIST is not None:
+    catalogs = [c for c in catalogs if c in CATALOG_ALLOWLIST]
+
+catalogs = sorted(set(catalogs))
+
+print(f"Discovered catalogs: {len(catalogs)}")
+for c in catalogs:
+    print(" -", c)
+
+# -----------------------------------------------------------------------------
+# Discover schemas, tables/views, and volumes
+# -----------------------------------------------------------------------------
+discovered_schemas = []
+discovered_relations = []
+discovered_volumes = []
+
+for catalog in catalogs:
+    schema_df = safe_collect_df(
+        f"SHOW SCHEMAS IN {fq_catalog(catalog)}",
+        f"SHOW SCHEMAS IN {catalog}"
+    )
+    if schema_df is None:
+        continue
+
+    schema_name_col = schema_df.columns[0]
+    schemas = [r[schema_name_col] for r in schema_df.collect()]
+
+    for schema in schemas:
+        discovered_schemas.append((catalog, schema))
+
+        # Enumerate tables/views from information_schema.tables
+        relation_sql = f"""
+        SELECT
+          table_catalog,
+          table_schema,
+          table_name,
+          table_type
+        FROM {q_ident(catalog)}.information_schema.tables
+        WHERE table_schema = {repr(schema)}
+        """
+        rel_df = safe_collect_df(relation_sql, f"{catalog}.{schema} relations")
+        if rel_df is not None:
+            for r in rel_df.collect():
+                discovered_relations.append((
+                    r["table_catalog"],
+                    r["table_schema"],
+                    r["table_name"],
+                    r["table_type"]
+                ))
+
+        # Enumerate volumes
+        vol_df = safe_collect_df(
+            f"SHOW VOLUMES IN {fq_schema(catalog, schema)}",
+            f"SHOW VOLUMES IN {catalog}.{schema}"
+        )
+        if vol_df is not None:
+            vol_name_col = vol_df.columns[0]
+            for r in vol_df.collect():
+                discovered_volumes.append((catalog, schema, r[vol_name_col]))
+
+print(f"Schemas discovered   : {len(discovered_schemas)}")
+print(f"Relations discovered : {len(discovered_relations)}")
+print(f"Volumes discovered   : {len(discovered_volumes)}")
+
+# -----------------------------------------------------------------------------
+# Collect grants
+# -----------------------------------------------------------------------------
+grant_dfs = []
+
+# Catalog grants
+for catalog in catalogs:
+    df = safe_collect_df(
+        f"SHOW GRANTS ON CATALOG {fq_catalog(catalog)}",
+        f"SHOW GRANTS ON CATALOG {catalog}"
+    )
+    if df is not None:
+        grant_dfs.append(
+            normalize_show_grants_df(
+                df,
+                object_type="CATALOG",
+                catalog_name=catalog
+            )
+        )
+
+# Schema grants
+for catalog, schema in discovered_schemas:
+    df = safe_collect_df(
+        f"SHOW GRANTS ON SCHEMA {fq_schema(catalog, schema)}",
+        f"SHOW GRANTS ON SCHEMA {catalog}.{schema}"
+    )
+    if df is not None:
+        grant_dfs.append(
+            normalize_show_grants_df(
+                df,
+                object_type="SCHEMA",
+                catalog_name=catalog,
+                schema_name=schema
+            )
+        )
+
+# Table/view grants
+for catalog, schema, object_name, table_type in discovered_relations:
+    df = safe_collect_df(
+        f"SHOW GRANTS ON TABLE {fq_object(catalog, schema, object_name)}",
+        f"SHOW GRANTS ON TABLE {catalog}.{schema}.{object_name}"
+    )
+    if df is not None:
+        grant_dfs.append(
+            normalize_show_grants_df(
+                df,
+                object_type="VIEW" if str(table_type).upper() == "VIEW" else "TABLE",
+                catalog_name=catalog,
+                schema_name=schema,
+                object_name=object_name
+            ).withColumn("relation_type", F.lit(table_type))
+        )
+
+# Volume grants
+for catalog, schema, volume_name in discovered_volumes:
+    df = safe_collect_df(
+        f"SHOW GRANTS ON VOLUME {fq_object(catalog, schema, volume_name)}",
+        f"SHOW GRANTS ON VOLUME {catalog}.{schema}.{volume_name}"
+    )
+    if df is not None:
+        grant_dfs.append(
+            normalize_show_grants_df(
+                df,
+                object_type="VOLUME",
+                catalog_name=catalog,
+                schema_name=schema,
+                object_name=volume_name
+            )
+        )
+
+if not grant_dfs:
+    raise RuntimeError(
+        "No grants were collected. Check that the identity running this job has sufficient privileges."
+    )
+
+# -----------------------------------------------------------------------------
+# Union and finalize
+# -----------------------------------------------------------------------------
+grants_df = grant_dfs[0]
+for df in grant_dfs[1:]:
+    grants_df = grants_df.unionByName(df, allowMissingColumns=True)
+
+grants_df = (
+    grants_df
+    .withColumn("target_table", F.lit(TARGET_TABLE))
+    .withColumn("run_started_at_utc", F.lit(run_started_at_utc.isoformat()).cast("timestamp"))
+    .withColumn(
+        "object_fqn",
+        F.when(F.col("inventory_object_type") == "CATALOG", F.col("catalog_name"))
+         .when(F.col("inventory_object_type") == "SCHEMA",
+               F.concat_ws(".", F.col("catalog_name"), F.col("schema_name")))
+         .otherwise(
+               F.concat_ws(".", F.col("catalog_name"), F.col("schema_name"), F.col("object_name"))
+         )
+    )
+    .dropDuplicates([
+        "inventory_object_type",
+        "catalog_name",
+        "schema_name",
+        "object_name",
+        "principal",
+        "privilege",
+        "object_key",
+        "inherited_from_object_key"
+    ])
+)
+
+print("Collected grant rows =", grants_df.count())
+display(
+    grants_df.orderBy(
+        "inventory_object_type",
+        "catalog_name",
+        "schema_name",
+        "object_name",
+        "principal",
+        "privilege"
+    )
+)
+
+# -----------------------------------------------------------------------------
+# Create target schema if needed
+# -----------------------------------------------------------------------------
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {fq_schema(target_catalog, target_schema)}")
+
+# -----------------------------------------------------------------------------
+# Write output
+# -----------------------------------------------------------------------------
+writer = grants_df.write.format("delta")
+
+if WRITE_MODE == "overwrite":
+    writer = writer.mode("overwrite").option("overwriteSchema", "true")
+elif WRITE_MODE == "append":
+    writer = writer.mode("append")
+else:
+    raise ValueError("write_mode must be overwrite or append")
+
+writer.saveAsTable(TARGET_TABLE)
+
+print(f"Wrote grants inventory to {TARGET_TABLE}")
+
+# -----------------------------------------------------------------------------
+# Optional post-write checks
+# -----------------------------------------------------------------------------
+print("Summary by object type")
+display(
+    spark.sql(f"""
+        SELECT inventory_object_type, COUNT(*) AS rows
+        FROM {TARGET_TABLE}
+        GROUP BY inventory_object_type
+        ORDER BY inventory_object_type
+    """)
+)
+
+print("Sample rows")
+display(
+    spark.sql(f"""
+        SELECT *
+        FROM {TARGET_TABLE}
+        ORDER BY catalog_name, schema_name, object_name, principal, privilege
+        LIMIT 200
+    """)
+)
+
+
+
+---------------
+
+
+
+
+BROWSE
+Applicable object types: CATALOG, CLEAN ROOM, EXTERNAL METADATA, EXTERNAL LOCATION
+
+Allows a user to view an object's metadata using Catalog Explorer, the schema browser, search results, the lineage graph, information_schema, and the REST API. This visibility enables users to discover objects and request access to them.
+
+The user does not require the USE CATALOG privilege on the parent catalog or USE SCHEMA on the parent schema.
+
+All users are granted the BROWSE privilege by default on new catalogs that are created using Catalog Explorer. You can revoke the privilege if you prefer. Catalogs created using SQL statements, the REST API, or the Databricks CLI do not grant the BROWSE privilege by default. You must grant it overtly.
+
+Databricks recommends granting BROWSE on catalogs to the All account users group to make objects discoverable and allow all users to request access to objects.
+
+
+
 The standard / recommended approach is:
 
 Grant BROWSE privilege broadly where appropriate (e.g., on catalogs or the metastore level if your governance model allows it).
