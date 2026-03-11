@@ -1,3 +1,14 @@
+The standard / recommended approach is:
+
+Grant BROWSE privilege broadly where appropriate (e.g., on catalogs or the metastore level if your governance model allows it).
+BROWSE lets users see metadata (in Catalog Explorer, information_schema, lineage, etc.) without granting data access (USE CATALOG, USE SCHEMA, SELECT).
+Databricks often recommends granting BROWSE on catalogs to large groups (e.g., "All users" or similar) to improve discoverability while keeping data protected.
+Example:SQLGRANT BROWSE ON CATALOG my_catalog TO `data-analysts-group`;
+-- or even broader
+GRANT BROWSE ON CATALOG my_catalog TO `account users`;After this grant, users in that group will start seeing rows for objects in my_catalog when querying system.information_schema.tables, columns, etc.
+
+
+
 curl --request GET \
   --url 'https://YOUR_WORKSPACE_URL/api/2.0/permissions/warehouses/YOUR_WAREHOUSE_ID' \
   --header 'Authorization: Bearer YOUR_TOKEN' \
