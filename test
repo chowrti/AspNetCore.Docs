@@ -1,3 +1,96 @@
+-- Example: get direct upstream for one object
+SELECT *
+FROM system.access.lineage
+WHERE entity_type = 'VIEW'
+  AND entity_id = 'catalog.schema.my_view'   -- or use entity_name
+  AND lineage_type = 'UPSTREAM';   -- or DOWNSTREAM
+
+
+
+
+
+# Assumptions:
+# - You have two connections: source_ws (East), target_ws (West)
+# - Using databricks.sql or SDK
+
+import databricks.sql as dbsql
+import networkx as nx
+from networkx.algorithms.dag import topological_sort
+
+# 1. Get all views and their DDL + direct dependencies
+def get_all_views_and_ddl(conn, catalog_filter="main"):
+    with conn.cursor() as cur:
+        cur.execute(f"""
+            SELECT table_catalog, table_schema, table_name, view_definition
+            FROM {catalog_filter}.INFORMATION_SCHEMA.VIEWS
+            WHERE table_catalog = '{catalog_filter}'
+              AND table_schema NOT LIKE 'system%'
+        """)
+        rows = cur.fetchall()
+    return [(r[0], r[1], r[2], r[3]) for r in rows]
+
+# 2. Very simple dependency parser (improve with sqlparse library)
+def extract_referenced_tables(view_definition, current_catalog, current_schema):
+    # Naive: look for words that look like catalog.schema.table or schema.table or table
+    # Better: use sqlparse or regular expressions for FROM/JOIN/WITH clauses
+    refs = set()
+    lines = view_definition.upper().split()
+    for i, token in enumerate(lines):
+        if token in ('FROM', 'JOIN'):
+            ref = lines[i+1].strip(',').strip(';')
+            # handle 3-part, 2-part, 1-part names
+            parts = ref.split('.')
+            if len(parts) == 3:
+                refs.add(ref)
+            elif len(parts) == 2:
+                refs.add(f"{current_catalog}.{ref}")
+            else:
+                refs.add(f"{current_catalog}.{current_schema}.{ref}")
+    return refs
+
+# 3. Build graph
+G = nx.DiGraph()
+
+views = get_all_views_and_ddl(source_conn, "main_east")
+
+for cat, sch, name, ddl in views:
+    full_name = f"{cat}.{sch}.{name}"
+    G.add_node(full_name, ddl=ddl, cat=cat, sch=sch, name=name)
+    
+    refs = extract_referenced_tables(ddl, cat, sch)
+    for ref in refs:
+        if ref in [f"{cat}.{sch}.{n}" for _,_,n,_ in views]:  # only internal views
+            G.add_edge(ref, full_name)  # edge = "ref is parent of view"
+
+# 4. Topological order → create leaves first
+create_order = list(topological_sort(G))
+
+# 5. Create in target (replace catalog name)
+target_catalog = "main_west"
+
+for full_name in create_order:
+    node = G.nodes[full_name]
+    ddl = node['ddl']
+    
+    # Replace old catalog with new one (careful — do string replace safely)
+    new_ddl = ddl.replace(f"{node['cat']}.", f"{target_catalog}.")
+    # You can also replace storage paths if needed (e.g. abfss://east@... → west@...)
+    
+    with target_conn.cursor() as cur:
+        try:
+            cur.execute(f"CREATE OR REPLACE VIEW {target_catalog}.{node['sch']}.{node['name']} AS {new_ddl}")
+            print(f"Created {full_name}")
+        except Exception as e:
+            print(f"Failed {full_name}: {e}")
+
+
+
+
+
+
+
+----
+
 # Basic test (if only one identity total, or system-assigned)
 curl 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/' -H Metadata:true
 
