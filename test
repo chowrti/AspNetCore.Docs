@@ -1,3 +1,20 @@
+Approach,Pros,Cons,When to Use,Best Practice Alignment
+Different AD groups + direct grants on tables/schemas (recommended),"- Extremely granular control
+- No data duplication or physical separation needed
+- Centralized auditing & lineage
+- Scales well with many teams
+- Easy to automate (e.g., via Terraform/Catalog API)","- Requires careful privilege management (can become complex without automation)
+- Inheritance must be understood to avoid surprises","Most scenarios, especially when datasets share storage but need different access","Yes — this is the primary model promoted in Unity Catalog docs and best practices (least privilege, no need for folder-based isolation)."
+Separate folders + separate catalogs/schemas + storage-level isolation,"- Strong physical/logical separation (e.g., different ADLS paths or S3 buckets)
+- Easier for very strict compliance (e.g., regulated data)
+- Can combine with different external locations","- Leads to data silos/duplication
+- Harder to share data across teams later
+- More admin overhead for locations/credentials
+- Less flexible for dynamic access changes","Rare cases with extreme isolation needs (e.g., multi-tenant strict separation or regulatory silos)",Not preferred for most use cases — Databricks discourages heavy reliance on physical separation since Unity Catalog provides logical controls. Use only when storage-level isolation is mandated.
+
+
+
+
 -- Example: get direct upstream for one object
 SELECT *
 FROM system.access.lineage
