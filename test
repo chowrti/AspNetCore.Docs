@@ -1,3 +1,27 @@
+DR Test Scenarios – Data Lake Consumers
+
+Objective: Validate end-to-end connectivity and data access from DataStage VMs through DataBricks SQL Warehouses to ADLS2 Data Lake in both primary and DR regions
+
+Test Scenarios:
+
+East DataStage VM → East Databricks SQL Warehouse → East ADLS2 (Primary – Normal Operation)
+East DataStage VM → West Databricks SQL Warehouse → East ADLS2 (Cross-region compute test)
+East DataStage VM → East Databricks SQL Warehouse → West ADLS2 (After East → West failover)
+East DataStage VM → West Databricks SQL Warehouse → West ADLS2 (After full East failover)
+West DataStage VM → West Databricks SQL Warehouse → West ADLS2 (West region normal / post-failover operation)
+West DataStage VM → West Databricks SQL Warehouse → East ADLS2 (After failback to East)
+
+Success Criteria:
+
+Successful connection from DataStage VM to Databricks SQL Warehouse
+Successful query execution against ADLS2 storage
+No access or performance degradation during/after failover & failback
+
+
+--------------
+
+
+
 # Assuming your AD groups are already synced to Databricks account level
 
 resource "databricks_grants" "sales_dataset_tables" {
