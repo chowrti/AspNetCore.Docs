@@ -1,3 +1,43 @@
+# Assuming your AD groups are already synced to Databricks account level
+
+resource "databricks_grants" "sales_dataset_tables" {
+  # Repeat this block (or use modules/for_each) for each table that needs different access
+  table = "prod_sales.default.customer_orders"   # full 3-level name
+
+  grant {
+    principal  = "ad-group-sales-analysts"      # your Azure AD group name
+    privileges = ["SELECT"]
+  }
+
+  grant {
+    principal  = "ad-group-sales-engineers"
+    privileges = ["SELECT", "MODIFY"]
+  }
+
+  grant {
+    principal  = "ad-group-finance-auditors"
+    privileges = ["SELECT"]
+  }
+}
+
+# Another table with completely different groups
+resource "databricks_grants" "finance_dataset_tables" {
+  table = "prod_finance.default.payroll_summary"
+
+  grant {
+    principal  = "ad-group-finance-team"
+    privileges = ["SELECT", "MODIFY"]
+  }
+
+  grant {
+    principal  = "ad-group-compliance"
+    privileges = ["SELECT"]
+  }
+}
+
+
+
+
 Approach,Pros,Cons,When to Use,Best Practice Alignment
 Different AD groups + direct grants on tables/schemas (recommended),"- Extremely granular control
 - No data duplication or physical separation needed
