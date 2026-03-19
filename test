@@ -1,3 +1,8 @@
+distinct_types = [row[0] for row in df.select("Type").distinct().collect()]
+result_string = ",".join(distinct_types)
+
+
+
 from pyspark.sql.functions import array_join, collect_list
 df.agg(array_join(collect_list("Type"), ",").alias("types")).collect()[0][0]
 
