@@ -1,22 +1,25 @@
-from pyspark.sql.functions import col
+from pyspark.sql.functions import col, lower, trim
 
-# Filter only the active records from the two dimensions
-active_customers = df_dim1.filter(col("active") == True)   # or .filter("active")
-active_products  = dim2.filter("active")
+# Optional: normalize strings to make matching more reliable
+df1_norm = df1.withColumn("sql_text_norm", lower(trim(col("sql_text"))))
+df2_norm = df2.withColumn("tablename_norm", lower(trim(col("tablename")))) \
+              .withColumn("allowed_actors_norm", lower(trim(col("allowed_actors"))))
 
-result = df_main \
-    .join(active_customers, 
-          df_main.customer_id == active_customers.id, 
-          "inner") \
-    .join(active_products, 
-          df_main.product_id == active_products.id, 
-          "inner") \
+violations = df1_norm.crossJoin(df2_norm) \
+    .where(
+        col("sql_text_norm").contains(col("tablename_norm")) &
+        ~col("allowed_actors_norm").contains(col("executed_by"))   # note the NOT (~)
+    ) \
     .select(
-        df_main["*"],                   # or specific columns
-        active_customers.name.alias("customer_name"),
-        active_products.name.alias("product_name"),
-        # ... etc
+        col("sql_text"),
+        col("executed_by"),
+        col("tablename").alias("forbidden_table"),
+        col("allowed_actors").alias("allowed_list")
+        # add any other columns you want to see
     )
+
+violations.show(truncate=False)
+# violations.count()   # ← how many violations?
 
 
 
