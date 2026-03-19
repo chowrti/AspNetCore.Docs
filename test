@@ -1,3 +1,9 @@
+from pyspark.sql.functions import array_join, collect_list
+df.agg(array_join(collect_list("Type"), ",").alias("types")).collect()[0][0]
+
+---
+
+
 distinct_types = df.select("Type").distinct().rdd.flatMap(lambda x: x).collect()
 
 # Join them into a string
