@@ -1,26 +1,25 @@
 from pyspark.sql.functions import col
 
-# Assuming your tables are already loaded as DataFrames
-df_customers = spark.table("customers")     # or spark.read...
-df_orders    = spark.table("orders")
+# Filter only the active records from the two dimensions
+active_customers = df_dim1.filter(col("active") == True)   # or .filter("active")
+active_products  = dim2.filter("active")
 
-result = (df_customers
-    .join(df_orders, 
-          on = df_customers.customer_id == df_orders.customer_id,
-          how = "inner")                     # or "left", "right", etc.
-    .filter(col("active") == True)
-    # .filter("active = true")             # SQL string style also works
+result = df_main \
+    .join(active_customers, 
+          df_main.customer_id == active_customers.id, 
+          "inner") \
+    .join(active_products, 
+          df_main.product_id == active_products.id, 
+          "inner") \
     .select(
-        df_customers.customer_id,
-        df_customers.name,
-        df_customers.active,
-        df_orders.order_id,
-        df_orders.order_date,
-        df_orders.amount
+        df_main["*"],                   # or specific columns
+        active_customers.name.alias("customer_name"),
+        active_products.name.alias("product_name"),
+        # ... etc
     )
-)
 
-result.show()
+
+
 
 --------
 
