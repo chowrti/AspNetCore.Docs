@@ -1,3 +1,15 @@
+distinct_types = df.select("Type").distinct().rdd.flatMap(lambda x: x).collect()
+
+# Join them into a string
+result_string = ",".join(distinct_types)
+
+print(result_string)
+# or
+print(",".join(distinct_types))
+
+
+-------------------
+
 from pyspark.sql.functions import col, lower, trim
 
 # Optional: normalize strings to make matching more reliable
