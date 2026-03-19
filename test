@@ -1,3 +1,14 @@
+# Option 1 – spark (usually preferred nowadays)
+spark.conf.get("spark.databricks.workspaceUrl").split("://")[1].split(".")[0]   # sometimes people take only the prefix
+
+# Option 2 – dbutils
+dbutils.notebook.entry_point.getDbutils().notebook().getContext().browserHostName().get()
+
+
+---------
+
+
+
 DR Test Scenarios – Data Lake Consumers
 
 Objective: Validate end-to-end connectivity and data access from DataStage VMs through DataBricks SQL Warehouses to ADLS2 Data Lake in both primary and DR regions
