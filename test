@@ -1,3 +1,75 @@
+
+
+I can't directly generate or display a live Excel chart here (since this is text-based), but I can give you a ready-to-copy **example setup** for your DR test Gantt chart (minutes-based) that you can paste straight into Excel. Then I'll show you some visual examples of what similar short-duration / time-of-day Gantt charts look like in Excel.
+
+### Step 1: Quick data to copy-paste into Excel
+
+Open a new Excel sheet and paste this into cells **A1:D8** (or adjust as needed):
+
+```
+Task	Start DateTime	Duration (minutes)	End DateTime (formula)
+Pre-checks & notifications	3/20/2026 09:00	15	=B2+(C2/1440)
+Initiate failover	3/20/2026 09:15	8	=B3+(C3/1440)
+DNS / routing change	3/20/2026 09:23	30	=B4+(C4/1440)
+Application validation	3/20/2026 09:53	45	=B5+(C5/1440)
+Data sync check	3/20/2026 10:38	20	=B6+(C6/1440)
+Go/No-go decision	3/20/2026 10:58	5	=B7+(C7/1440)
+Cutover complete	3/20/2026 11:03	0	=B8+(C8/1440)
+```
+
+- Format column B and D as **Date** with time (right-click → Format Cells → Date or Custom → m/d/yyyy h:mm AM/PM).
+- Column C is just numbers (minutes).
+- Drag the End DateTime formula down if you add more rows.
+
+### Step 2: Create the chart in under 2 minutes
+
+1. Select cells **A1:C8** (Task + Start + Duration).
+2. Go to **Insert** tab → **Charts** → **Bar** → **Stacked Bar** (2-D Stacked Bar).
+3. Right-click the blue "Start DateTime" bars → **Format Data Series** → **Fill** → No fill; **Border** → No line (makes them invisible).
+4. Right-click the vertical axis (tasks) → **Format Axis** → **Categories in reverse order** (so top task is first).
+5. Right-click the horizontal axis (times) → **Format Axis**:
+   - **Axis Options** → Minimum: set to ≈0.375 (for 9:00 AM; Excel serial for 3/20/2026 09:00 is around 45340.375 — or just click the cell B2 and copy-paste the number format).
+   - Maximum: add ~0.1–0.2 (for a few extra hours, e.g., up to 12:00–13:00).
+   - Major unit: 0.0417 (≈1 hour) or 0.00694 (≈10 minutes) for finer scale.
+   - Number → Custom: `h:mm AM/PM` or `hh:mm` for clean time display.
+6. Format the visible duration bars: change fill color (e.g., blue/orange), reduce Gap Width to 30–50% for thicker bars.
+7. Add title: "DR Test Timeline – March 20, 2026".
+8. Optional: Right-click duration bars → Add Data Labels (shows minutes on bars if useful).
+
+This will give you a clean horizontal timeline showing each step's duration starting at the right clock time.
+
+### Visual examples of what it looks like
+
+Here are some real examples of Excel Gantt-style charts (mostly day-based, but the principle is identical — just with time axis formatted as hh:mm instead of dates/weeks). For short DR tests, yours will be zoomed in to hours/minutes on the x-axis, with bars much shorter and more precise.
+
+These show stacked bar Gantt formatting (invisible start + visible duration) — exactly the method above.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+The first and last ones are closer to what a minutes-based version would resemble (compact bars over a short time window). For even better minute precision, search YouTube for "Excel Gantt chart hours minutes" — there's a good template download in one video (GitHub link mentioned).
+
+If you paste your actual DR steps here (task names, start times, minutes), I can tweak the example data or troubleshoot axis issues! Or tell me what part looks off when you try it. Good luck with the test — hope the chart helps visualize the timeline clearly.
+
+
+------------------
+
+
+
+
+
 workspace_url = spark.conf.get("spark.databricks.workspaceUrl")
 # Full URL → e.g. "https://mycompany.cloud.databricks.com" or "https://adb-123456789.1.azuredatabricks.net"
 
