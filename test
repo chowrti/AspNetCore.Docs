@@ -1,3 +1,15 @@
+workspace_url = spark.conf.get("spark.databricks.workspaceUrl")
+# Full URL → e.g. "https://mycompany.cloud.databricks.com" or "https://adb-123456789.1.azuredatabricks.net"
+
+# Extract just the workspace name/hostname prefix
+workspace_name = workspace_url.replace("https://", "").split(".")[0]
+print(workspace_name)
+
+
+----------
+
+
+
 distinct_types = [row[0] for row in df.select("Type").distinct().collect()]
 result_string = ",".join(distinct_types)
 
