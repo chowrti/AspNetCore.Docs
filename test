@@ -1,4 +1,16 @@
 
+from pyspark.sql.functions import min as F_min, max as F_max, count
+
+# Option A: Using agg() dictionary style (very readable)
+df.agg(
+    F_min("date_col").alias("earliest_date"),
+    F_max("date_col").alias("latest_date"),
+    count("*").alias("total_rows")
+).show(truncate=False)
+
+
+
+
 
 I can't directly generate or display a live Excel chart here (since this is text-based), but I can give you a ready-to-copy **example setup** for your DR test Gantt chart (minutes-based) that you can paste straight into Excel. Then I'll show you some visual examples of what similar short-duration / time-of-day Gantt charts look like in Excel.
 
