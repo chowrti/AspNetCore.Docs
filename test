@@ -1,3 +1,44 @@
+deploy-dev.yml
+
+name: Deploy Databricks Bundle to DEV
+
+on:
+  push:
+    branches: [ develop, feature/* ]
+  pull_request:
+    branches: [ develop, main ]
+
+jobs:
+  validate-and-deploy-dev:
+    runs-on: ubuntu-latest
+    environment: dev   # Optional: GitHub environment for secrets + approvals
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Databricks CLI
+        uses: databricks/setup-cli@main   # Always gets the latest CLI
+
+      - name: Validate Bundle for DEV
+        run: databricks bundle validate --target dev
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST_DEV }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN_DEV }}
+          # Or use OAuth / OIDC / service principal (recommended for prod-like security)
+
+      - name: Deploy to DEV
+        run: databricks bundle deploy --target dev --auto-approve
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST_DEV }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN_DEV }}
+
+
+
+---------
+
+
+
 {
   "project_name": "my-etl-project",
   "include_notebook": false,
