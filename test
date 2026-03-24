@@ -1,3 +1,16 @@
+{
+  "project_name": "my-etl-project",
+  "include_notebook": false,
+  "include_pipeline": true,
+  "include_package": true,
+  "use_serverless": true,
+  "python_version": "3.11",
+  "add_poetry": true,
+  "add_uv": false
+}
+
+
+
 git credential reject https://github.com
 
 
