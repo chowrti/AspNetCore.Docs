@@ -1,3 +1,22 @@
+git credential reject https://github.com
+
+
+
+
+# 1. Erase the credential (recommended modern way)
+git credential-manager erase https://github.com
+
+# 2. Alternative manual way (works on all systems)
+git credential reject
+protocol=https
+host=github.com
+
+# (Press Enter after the last line, then press Ctrl + D or Ctrl + Z + Enter)
+
+
+
+
+
 
 # Remove stored GitHub credentials
 git credential-manager erase https://github.com
