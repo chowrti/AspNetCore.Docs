@@ -1,4 +1,15 @@
-git config --global credential.helper wincred
+
+# Remove stored GitHub credentials
+git credential-manager erase https://github.com
+
+# Or on Windows:
+git credential reject
+protocol=https
+host=github.com
+^D   (press Ctrl+D or Ctrl+Z then Enter)
+
+
+
 
 ---------
 
