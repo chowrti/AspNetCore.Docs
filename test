@@ -1,4 +1,38 @@
 
+from pyspark.sql import DataFrame
+from pyspark.sql.functions import lit
+from functools import reduce
+import pyspark.sql.functions as F
+
+# Your 4 dataframes (some can be None)
+df1 = ...   # can be None
+df2 = ...   # can be None
+df3 = ... 
+df4 = ...
+
+# Step 1: Filter out None and replace with empty DataFrame (same schema as first non-None)
+dfs = [df for df in [df1, df2, df3, df4] if df is not None]
+
+if not dfs:
+    # All were None → return empty DataFrame with desired schema
+    final_df = spark.createDataFrame([], schema="your_column1 STRING, your_column2 INT, ...")
+else:
+    # Use unionByName (safer than union) + allowMissingColumns=True
+    def union_all(dfs_list):
+        return reduce(
+            lambda a, b: a.unionByName(b, allowMissingColumns=True),
+            dfs_list
+        )
+    
+    final_df = union_all(dfs)
+
+final_df.show()
+
+
+----------
+
+
+
 from pyspark.sql.functions import min as F_min, max as F_max, count
 
 # Option A: Using agg() dictionary style (very readable)
