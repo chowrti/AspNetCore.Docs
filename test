@@ -1,3 +1,89 @@
+
+# databricks.yml
+bundle:
+  name: my-project
+
+variables:
+  cluster_policy_id:          # ← variable name (you can choose any)
+    description: Cluster policy ID used by job clusters
+    default: "0000000000000000"   # fallback value (rarely used)
+
+include:
+  - ./resources/job.yml        # your jobs file
+
+targets:
+  dev:
+    mode: development
+    variables:
+      cluster_policy_id: "1111111111111111"   # ← Dev policy ID
+
+  qa:
+    mode: production
+    variables:
+      cluster_policy_id: "2222222222222222"   # ← QA policy ID
+
+  prod:
+    mode: production
+    variables:
+      cluster_policy_id: "3333333333333333"   # ← Prod policy ID
+
+
+
+
+# resources/job.yml
+resources:
+  jobs:
+    my_etl_job:
+      name: "${bundle.name} - ETL Job - ${bundle.target}"
+      job_clusters:
+        - job_cluster_key: default_cluster
+          new_cluster:
+            policy_id: ${var.cluster_policy_id}     # ← This is the key line
+
+      tasks:
+        - task_key: main_task
+          job_cluster_key: default_cluster
+          notebook_task:
+            notebook_path: ../src/notebooks/my_notebook.ipynb
+
+
+
+
+
+name: Deploy to Dev
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Deploy Bundle to Dev
+        run: |
+          databricks bundle deploy \
+            --target dev \
+            --var "cluster_policy_id=${{ secrets.DEV_CLUSTER_POLICY_ID }}" \
+            --auto-approve
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST_DEV }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN_DEV }}
+          # or use service principal: DATABRICKS_CLIENT_ID + DATABRICKS_CLIENT_SECRET
+
+
+--------
+
+
+
+
 deploy-dev.yml
 
 name: Deploy Databricks Bundle to DEV
