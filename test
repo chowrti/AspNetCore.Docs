@@ -1,3 +1,16 @@
+bundle:
+  name: my-bundle
+
+terraform:
+  exec_path: /usr/local/bin/terraform   # This is where hashicorp/setup-terraform installs it on ubuntu-latest
+
+# ... rest of your targets, resources, etc.
+
+
+----
+
+
+
 ALTER TABLE catalog.schema.my_external_table 
 SET TBLPROPERTIES (
   'delta.minReaderVersion' = '2',
