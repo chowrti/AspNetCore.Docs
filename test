@@ -1,4 +1,73 @@
 bundle:
+  name: my-project
+
+targets:
+  dev:
+    default: true
+    workspace:
+      host: ${env:DATABRICKS_HOST}
+  prod:
+    workspace:
+      host: ${env:DATABRICKS_HOST}
+
+
+
+
+name: Deploy Databricks Asset Bundle
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:   # Optional: validate on PRs
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Validate bundle
+        run: databricks bundle validate
+        working-directory: .   # or ./path/to/bundle if not at root
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+  deploy:
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Deploy bundle to production
+        run: databricks bundle deploy --target prod   # or just "databricks bundle deploy" if using DATABRICKS_BUNDLE_ENV
+        working-directory: .
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          # DATABRICKS_BUNDLE_ENV: prod   # Alternative if your yml uses it
+
+
+
+---
+
+
+
+
+
+
+
+
+
+bundle:
   name: my-bundle
 
 terraform:
