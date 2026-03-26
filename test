@@ -1,3 +1,10 @@
+env:
+  DATABRICKS_TF_EXEC_PATH: /usr/local/bin/terraform
+
+---
+
+
+
 name: Deploy Databricks Asset Bundle
 
 on:
