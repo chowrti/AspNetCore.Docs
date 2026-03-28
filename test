@@ -1,3 +1,8 @@
+DATABRICKS_BUNDLE_ENGINE=direct databricks bundle validate --target dev --output json | jq '.resources.jobs.my_etl_job.tasks[] | select(.notebook_task) | .notebook_task.notebook_path'
+
+
+
+
 - name: Deploy Bundle (Direct Engine - No Terraform)
   run: |
     DATABRICKS_BUNDLE_ENGINE=direct databricks bundle deploy --target dev --force-lock
