@@ -1,3 +1,16 @@
+- name: Deploy Bundle (Direct Engine - No Terraform)
+  run: |
+    DATABRICKS_BUNDLE_ENGINE=direct databricks bundle deploy --target dev --force-lock
+  env:
+    DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+    DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+
+
+----------
+
+
+
 env:
   DATABRICKS_TF_EXEC_PATH: /usr/local/bin/terraform
 
