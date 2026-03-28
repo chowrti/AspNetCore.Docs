@@ -1,3 +1,30 @@
+- name: Validate Bundle (Check what resources exist)
+  run: |
+    DATABRICKS_BUNDLE_ENGINE=direct databricks bundle validate --target dev --output json > validate.json
+    cat validate.json | jq '.resources.jobs // "No jobs defined!"'
+    echo "=== Full resources summary ==="
+    cat validate.json | jq '.resources'
+  env:
+    DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+    DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+- name: Show Deployment Plan (What will actually happen)
+  run: |
+    DATABRICKS_BUNDLE_ENGINE=direct databricks bundle plan --target dev   # Works only with direct engine
+
+- name: Deploy with Extra Verbosity
+  run: |
+    DATABRICKS_BUNDLE_ENGINE=direct databricks bundle deploy --target dev --force-lock
+  env:
+    DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+    DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+
+==========
+
+
+
+
 DATABRICKS_BUNDLE_ENGINE=direct databricks bundle validate --target dev --output json | jq '.resources.jobs.my_etl_job.tasks[] | select(.notebook_task) | .notebook_task.notebook_path'
 
 
