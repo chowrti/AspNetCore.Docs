@@ -1,3 +1,12 @@
+permissions:
+        - user_name: "your.email@company.com"
+          level: CAN_MANAGE          # or CAN_VIEW / CAN_MANAGE_RUN
+
+
+
+
+
+
 - name: Validate Bundle (Check what resources exist)
   run: |
     DATABRICKS_BUNDLE_ENGINE=direct databricks bundle validate --target dev --output json > validate.json
