@@ -1,3 +1,12 @@
+email_notifications:
+        on_failure:               # Sends email only when the entire job fails
+          - "alerts@yourcompany.com"
+          - "data-eng-team@yourcompany.com"
+
+
+
+
+
 root_path: /Workspace/Users/$$   {workspace.current_user.userName}/.bundle/   $${bundle.name}/dev
 
 
