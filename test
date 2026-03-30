@@ -1,3 +1,9 @@
+root_path: /Workspace/Users/$$   {workspace.current_user.userName}/.bundle/   $${bundle.name}/dev
+
+
+
+
+
 permissions:
         - user_name: "your.email@company.com"
           level: CAN_MANAGE          # or CAN_VIEW / CAN_MANAGE_RUN
